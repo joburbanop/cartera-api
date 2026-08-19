@@ -16,13 +16,20 @@ El proyecto sigue una estructura limpia orientada a servicios para desacoplar la
 
 ---
 
-## 🛠️ Requisitos del Sistema
+## 🚀 Arquitectura del Proyecto
 
-* **PHP** >= 8.2
-* **Composer**
-* **PostgreSQL**
-* **Laravel Herd** (Recomendado para entorno de desarrollo local)
+El proyecto sigue una estructura limpia (Clean Architecture) orientada a servicios, diseñada para desacoplar la lógica de negocio y garantizar la mantenibilidad y escalabilidad del sistema:
 
+*   **`app/Http/Controllers/`**: Controladores REST encargados de recibir las peticiones de la SPA, validar el `request` inicial y delegar el trabajo a las clases de servicio.
+*   **`app/Services/`**: Núcleo del sistema. Aquí reside la lógica pesada y los motores financieros:
+    *   `Security/`: Gestión de auditoría y permisos.
+    *   `Financial/`: Motor matemático para tablas de amortización, cálculo de intereses y saldos.
+    *   `Collection/`: Procesamiento de recaudos en cascada (mora -> cuota) y validación de lotes.
+*   **`app/DTOs/`**: Objetos blindados para transportar datos de manera segura y estructurada entre capas, evitando pasar arreglos sueltos.
+*   **`app/Enums/`**: Definición de estados inmutables del sistema (ej. estados de contratos: `DISPONIBLE`, `VENDIDO`, `MORA`).
+*   **`app/Traits/`**: Lógica reutilizable en controladores y modelos (ej. `ApiResponse` para estandarizar las respuestas JSON).
+*   **`app/Models/`**: Representación de las tablas de PostgreSQL utilizando Eloquent ORM.
+*   **`app/Jobs/` & `app/Listeners/`**: Gestión de tareas asíncronas y eventos en segundo plano, incluyendo el despacho de mensajes automatizados a través de la API de WhatsApp.
 ---
 
 ## 📦 Instalación y Configuración Local
