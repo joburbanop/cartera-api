@@ -38,7 +38,7 @@ Sigue estos pasos para levantar el backend en tu entorno local:
 
 1. **Clonar el repositorio:**
    ```bash
-   git clone [https://github.com/tu-usuario/cartera-api.git](https://github.com/tu-usuario/cartera-api.git)
+   git clone [https://github.com/joburbanop/cartera-api.git	](https://github.com/joburbanop/cartera-api.git)
    cd cartera-api
 
 ```
@@ -106,7 +106,4 @@ php artisan schedule:work
 ## 📄 Licencia
 
 Este proyecto es software privativo / de uso interno bajo los términos establecidos por la organización.
-
-```
-
-```
+---
