@@ -73,4 +73,12 @@ class AmortizationService
             return $installments;
         });
     }
+
+
+    public function getPlanByContract(Contract $contract)
+    {
+        return AmortizationPlan::where('contract_id', $contract->id)
+            ->orderBy('installment_number', 'asc')
+            ->get();
+    }
 }

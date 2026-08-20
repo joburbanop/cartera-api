@@ -26,4 +26,16 @@ class AmortizationController extends Controller
             201
         );
     }
+
+    public function show(Contract $contract): JsonResponse
+    {
+        $plan = $this->amortizationService->getPlanByContract($contract);
+
+        // Si el contrato aún no tiene cuotas generadas
+        if ($plan->isEmpty()) {
+            return $this->successResponse([], 'Este contrato aún no tiene un plan de amortización generado.', 200);
+        }
+
+        return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
+    }
 }
