@@ -8,6 +8,7 @@ use App\Http\Controllers\CRM\CustomerController;
 use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Sales\ContractController;
+use App\Http\Controllers\Sales\AmortizationController;
 
 
 Route::get('/user', function (Request $request) {
@@ -49,4 +50,5 @@ Route::middleware('auth:sanctum')->group(function () {
     // VENTAS / CONTRATOS 
     Route::post('/contracts', [ContractController::class, 'store']);
     Route::get('/contracts', [ContractController::class, 'index']);
+    Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);
 });
