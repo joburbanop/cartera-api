@@ -15,3 +15,4 @@ Route::get('/projects', [ProjectController::class, 'index']);
 
 //ruta para crear un lote
 Route::post('/lots', [LotController::class, 'store']);
+Route::get('/lots', [LotController::class, 'index']);

@@ -8,6 +8,7 @@ use App\DTOs\CreateLotDTO;
 use App\Services\Inventory\LotService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class LotController extends Controller
 {
@@ -25,5 +26,16 @@ class LotController extends Controller
         $lot = $this->lotService->createLot($dto, $userId);
 
         return $this->successResponse($lot->load('project'), 'Lote registrado exitosamente.', 201);
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        // Capturamos el project_id de la URL si existe (ej: /api/lots?project_id=1)
+        $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
+
+        // Llamamos al servicio
+        $lots = $this->lotService->getAllLots($projectId);
+
+        return $this->successResponse($lots, 'Lista de lotes obtenida exitosamente.');
     }
 }
