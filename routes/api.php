@@ -7,5 +7,6 @@ use App\Http\Controllers\Inventory\ProjectController; // <-- Apunta a la subcarp
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
-
+//ruta para crear un proyecto inmobiliario
 Route::post('/projects', [ProjectController::class, 'store']);
+Route::get('/projects', [ProjectController::class, 'index']);

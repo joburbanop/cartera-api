@@ -26,4 +26,14 @@ class ProjectService
             return $project->load('bankAccounts');
         });
     }
+
+
+    public function getAllProjects(int $perPage = 15)
+    {
+        // Traemos los proyectos ordenados por los más recientes
+        // y cargamos las relaciones para no hacer consultas de más (Eager Loading)
+        return Project::with(['bankAccounts', 'creator'])
+            ->latest()
+            ->paginate($perPage);
+    }
 }

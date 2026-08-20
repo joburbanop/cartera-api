@@ -27,4 +27,13 @@ class ProjectController extends Controller
 
         return $this->successResponse($project, 'Proyecto inmobiliario creado exitosamente.', 201);
     }
+
+    // Agrega este método a tu ProjectController
+    public function index(): JsonResponse
+    {
+        // Llamamos al servicio para obtener los proyectos paginados
+        $projects = $this->projectService->getAllProjects();
+
+        return $this->successResponse($projects, 'Lista de proyectos obtenida exitosamente.');
+    }
 }
