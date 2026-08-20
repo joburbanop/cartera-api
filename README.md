@@ -91,3 +91,9 @@ Sigue estos pasos para levantar el backend en tu entorno local:
 ## 📄 Licencia
 
 Este proyecto es software privativo / de uso interno bajo los términos establecidos por la organización.
+
+---
+
+## 📐 Modelo entidad-relación
+
+Ver diagrama entidad-relación(https://drive.google.com/file/d/1vqlgz_ior4u0PrJBugpQ7I1yY-lSVb6Z/view?usp=sharing)
