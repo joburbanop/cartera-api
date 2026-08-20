@@ -20,4 +20,9 @@ class CustomerService
             'created_by' => $userId,
         ]);
     }
+
+    public function getAllCustomers(int $perPage = 15)
+    {
+        return Customer::latest()->paginate($perPage);
+    }
 }

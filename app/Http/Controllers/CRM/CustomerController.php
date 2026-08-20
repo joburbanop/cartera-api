@@ -26,4 +26,11 @@ class CustomerController extends Controller
 
         return $this->successResponse($customer, 'Cliente registrado exitosamente en el CRM.', 201);
     }
+
+    public function index(): JsonResponse
+    {
+        $customers = $this->customerService->getAllCustomers();
+
+        return $this->successResponse($customers, 'Lista de clientes obtenida exitosamente.');
+    }
 }
