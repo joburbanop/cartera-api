@@ -13,6 +13,7 @@ class BankAccount extends Model
         'account_number',
         'account_type',
         'is_active',
+        'holder_name',
     ];
 
     // Forzar tipos de datos
