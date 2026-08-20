@@ -8,4 +8,5 @@ enum LotStatus: string
     case PREVENTA = 'preventa';
     case VENDIDO = 'vendido';
     case ABOGADO = 'abogado'; // En cobro jurídico/pleito
+    case SEPARADO = 'separado';
 }

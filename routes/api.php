@@ -7,6 +7,7 @@ use App\Http\Controllers\Inventory\LotController;
 use App\Http\Controllers\CRM\CustomerController;
 use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Sales\ContractController;
 
 
 Route::get('/user', function (Request $request) {
@@ -44,4 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Rutas Financieras
     Route::post('/bank-accounts', [BankAccountController::class, 'store']);
     Route::get('/bank-accounts', [BankAccountController::class, 'index']);
+
+    // VENTAS / CONTRATOS 
+    Route::post('/contracts', [ContractController::class, 'store']);
+    Route::get('/contracts', [ContractController::class, 'index']);
 });
