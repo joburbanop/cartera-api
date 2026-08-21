@@ -30,10 +30,42 @@ class ProjectService
 
     public function getAllProjects(int $perPage = 15)
     {
-        // Traemos los proyectos ordenados por los más recientes
-        // y cargamos las relaciones para no hacer consultas de más (Eager Loading)
-        return Project::with(['bankAccounts', 'creator'])
+        // 1. Traemos los proyectos y delegamos a la Base de Datos el conteo de lotes
+        $projects = Project::with(['bankAccounts', 'creator'])
+            ->withCount([
+                'lots as total_lots_count', // Cuenta TODOS los lotes asociados al proyecto
+                
+                'lots as available_lots_count' => function ($query) {
+                    $query->where('status', 'disponible'); // Cuenta solo los disponibles
+                },
+                
+                'lots as sold_lots_count' => function ($query) {
+                    $query->whereIn('status', ['preventa', 'vendido']); // Cuenta los vendidos o separados
+                }
+            ])
             ->latest()
             ->paginate($perPage);
+
+        // 2. Transformamos la colección paginada para inyectar los cálculos finales
+        $projects->getCollection()->transform(function ($project) {
+            
+            $porcentaje = 0;
+            
+            if ($project->total_lots_count > 0) {
+                // LÓGICA A PRUEBA DE BALAS: 
+                // Lo vendido/separado es la resta del Total menos los Disponibles.
+                // Así no importa si el estado dice "reserved", "vendido" o "separado".
+                $lotesNoDisponibles = $project->total_lots_count - $project->available_lots_count;
+                
+                $porcentaje = ($lotesNoDisponibles / $project->total_lots_count) * 100;
+            }
+
+            // Inyectamos las propiedades amigables para Angular
+            $project->avance_ventas = round($porcentaje);
+            
+            return $project;
+        });
+
+        return $projects;
     }
 }
