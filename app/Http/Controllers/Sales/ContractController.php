@@ -8,6 +8,7 @@ use App\DTOs\CreateContractDTO;
 use App\Services\Sales\ContractService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
+use App\Models\Contract;
 
 class ContractController extends Controller
 {
@@ -32,5 +33,17 @@ class ContractController extends Controller
         $contracts = $this->contractService->getAllContracts();
 
         return $this->successResponse($contracts, 'Lista de contratos obtenida exitosamente.');
+    }
+    
+
+    public function show(Contract $contract)
+    {
+        // Cargamos el lote asociado para que Angular pueda decir "Lote V3" en la cabecera
+        $contract->load(['lot']); 
+
+        return $this->successResponse(
+            $contract,
+            'Detalles del contrato obtenidos exitosamente.'
+        );
     }
 }

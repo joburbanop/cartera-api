@@ -50,6 +50,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // VENTAS / CONTRATOS 
     Route::post('/contracts', [ContractController::class, 'store']);
     Route::get('/contracts', [ContractController::class, 'index']);
+    Route::get('/contracts/{contract}', [ContractController::class, 'show']);
 
     // AMORTIZACIONES
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);
