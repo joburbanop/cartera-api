@@ -36,10 +36,10 @@ class ContractController extends Controller
     }
     
 
-    public function show(Contract $contract)
+   public function show(Contract $contract)
     {
-        // Cargamos el lote asociado para que Angular pueda decir "Lote V3" en la cabecera
-        $contract->load(['lot']); 
+        //cargamos los datos del lote, cliente , proyecto y estado del contrato
+        $contract->load(['lot', 'customer', 'lot.project','status']); 
 
         return $this->successResponse(
             $contract,

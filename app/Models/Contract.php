@@ -48,4 +48,9 @@ class Contract extends Model
     {
         return $this->belongsTo(Lot::class);
     }
+
+    public function project()
+    {
+        return $this->belongsTo(Project::class);
+    }
 }
