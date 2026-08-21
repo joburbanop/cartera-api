@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use App\Enums\BankAccountType; // <-- Importar el Enum
 
 class StoreBankAccountRequest extends FormRequest
 {
@@ -14,10 +16,11 @@ class StoreBankAccountRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'bank_name' => 'required|string|max:100',
-            'account_number' => 'required|string|max:50|unique:bank_accounts,account_number',
-            'account_type' => 'required|string|in:savings,checking', // Ahorros o Corriente
-            'holder_name' => 'required|string|max:150'
+            'bank_name' => ['required', 'string', 'max:100'],
+            'account_number' => ['required', 'string', 'max:50', 'unique:bank_accounts,account_number'],
+            // Usamos Rule::enum para validación estricta
+            'account_type' => ['required', Rule::enum(BankAccountType::class)], 
+            'holder_name' => ['required', 'string', 'max:150']
         ];
     }
 }
