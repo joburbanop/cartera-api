@@ -9,14 +9,14 @@ use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Sales\ContractController;
 use App\Http\Controllers\Sales\AmortizationController;
-
+use App\Http\Controllers\TransactionController;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
 // RUTAS PÚBLICAS (No necesitan Token)
-Route::post('/users', [UserController::class, 'store']); // Crear usuario
+//Route::post('/users', [UserController::class, 'store']); // Crear usuario
 Route::post('/login', [AuthController::class, 'login']); // Iniciar sesión
 
 
@@ -40,12 +40,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
 
     // Rutas de CRM (Gestión de Clientes)
-    Route::post('/customers', [CustomerController::class, 'store']);
+    //Route::post('/customers', [CustomerController::class, 'store']);
 
 
     // Rutas Financieras
     Route::post('/bank-accounts', [BankAccountController::class, 'store']);
     Route::get('/bank-accounts', [BankAccountController::class, 'index']);
+
+    Route::post('/contracts/{contractId}/transactions/down-payment',[TransactionController::class, 'store']);
 
     // VENTAS / CONTRATOS 
     Route::post('/contracts', [ContractController::class, 'store']);

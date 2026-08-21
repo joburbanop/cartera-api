@@ -3,9 +3,11 @@
 namespace App\Services\Sales;
 
 use App\DTOs\CreateContractDTO;
+use App\Enums\LotStatus;
 use App\Models\Contract;
 use App\Models\Lot;
 use Illuminate\Support\Facades\DB;
+
 
 class ContractService
 {
@@ -28,7 +30,9 @@ class ContractService
 
             // 2. Regla de Negocio: Separar el lote para que no se venda doble
             $lot = Lot::findOrFail($dto->lotId);
-            $lot->update(['status' => 'separado']); 
+            $lot->update([
+            'status' => LotStatus::PREVENTA,
+            ]);
 
             return $contract;
         });

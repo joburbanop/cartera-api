@@ -5,7 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Enums\ContractStatus;
+
 
 class Contract extends Model
 {
@@ -48,4 +50,9 @@ class Contract extends Model
     {
         return $this->belongsTo(Lot::class);
     }
+
+    public function transactions(): HasMany
+{
+    return $this->hasMany(Transaction::class);
+}
 }
