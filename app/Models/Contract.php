@@ -55,4 +55,9 @@ class Contract extends Model
     {
         return $this->belongsTo(Project::class);
     }
+
+      public function transactions(): HasMany
+    {
+        return $this->hasMany(Transaction::class);
+    }
 }
