@@ -39,7 +39,7 @@ class ContractController extends Controller
    public function show(Contract $contract)
     {
         //cargamos los datos del lote, cliente , proyecto y estado del contrato
-        $contract->load(['lot', 'customer', 'lot.project','status']); 
+        $contract->load(['lot', 'customer', 'lot.project']); 
 
         return $this->successResponse(
             $contract,
