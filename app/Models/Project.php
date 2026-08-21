@@ -37,4 +37,9 @@ class Project extends Model
     {
         return $this->belongsTo(User::class, 'updated_by');
     }
+
+    public function lots()
+    {
+        return $this->hasMany(Lot::class);
+    }
 }

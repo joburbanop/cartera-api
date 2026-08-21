@@ -31,10 +31,10 @@ class AmortizationService
                 'principal_value' => $contract->down_payment_pactada,
                 'interest_value' => 0,
                 'remaining_balance' => $contract->sale_price - $contract->down_payment_pactada,
-                'status' => AmortizationStatus::UNPAID, // <-- Usamos el Enum estricto
+                'status' => AmortizationStatus::UNPAID, 
             ]);
 
-            // Motor Financiero: Sistema Francés
+            // Motor Financiero para calcular las mensualidades
             $principal = $contract->sale_price - $contract->down_payment_pactada;
             $rate = $contract->interest_rate / 100;
             $months = $contract->term_months;
@@ -66,7 +66,7 @@ class AmortizationService
                     'principal_value' => round($principalPayment, 2),
                     'interest_value' => round($interest, 2),
                     'remaining_balance' => round(max(0, $balance), 2),
-                    'status' => AmortizationStatus::UNPAID, // <-- Usamos el Enum estricto
+                    'status' => AmortizationStatus::UNPAID, 
                 ]);
             }
 
