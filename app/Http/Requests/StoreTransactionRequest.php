@@ -26,6 +26,9 @@ class StoreTransactionRequest extends FormRequest
             'amount' => 'required|numeric|gt:0',
             'transaction_date' => 'required|date',
             'payment_method' => 'required|in:cash,bank,barter,transfer,card',
+            'transaction_type' => 'sometimes|in:down_payment,regular_payment,extraordinary_payment,refund',
+            'installment_numbers' => 'nullable|array',
+            'installment_numbers.*' => 'integer|min:0',
             'receipt' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ];
     }

@@ -22,28 +22,31 @@ class TransactionService
         return DB::transaction(function () use ($dto) {
 
             $contract = Contract::findOrFail($dto->contractId);
+            $isDownPayment = $dto->transactionType === TransactionType::DOWN_PAYMENT;
 
-            $totalAbonado = $contract->transactions()
-                ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-                ->sum('amount');
+            if ($isDownPayment) {
+                $totalAbonado = $contract->transactions()
+                    ->where('transaction_type', TransactionType::DOWN_PAYMENT)
+                    ->sum('amount');
 
-           $saldoPendiente = bcsub((string) $contract->down_payment_pactada,(string) $totalAbonado,2);
+                $saldoPendiente = bcsub((string) $contract->down_payment_pactada, (string) $totalAbonado, 2);
 
-            if ($saldoPendiente <= 0) {
-                throw ValidationException::withMessages([
-                    'amount' => 'La cuota inicial ya se encuentra completamente pagada.',
-                ]);
-            }
+                if ($saldoPendiente <= 0) {
+                    throw ValidationException::withMessages([
+                        'amount' => 'La cuota inicial ya se encuentra completamente pagada.',
+                    ]);
+                }
 
-            if (bccomp($dto->amount, (string) $saldoPendiente, 2) === 1) {
-                throw ValidationException::withMessages([
-                    'amount' => 'El monto supera el saldo pendiente de la cuota inicial.',
-                ]);
+                if (bccomp($dto->amount, (string) $saldoPendiente, 2) === 1) {
+                    throw ValidationException::withMessages([
+                        'amount' => 'El monto supera el saldo pendiente de la cuota inicial.',
+                    ]);
+                }
             }
 
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
-                'transaction_type' => TransactionType::DOWN_PAYMENT,
+                'transaction_type' => $dto->transactionType,
                 'amount' => $dto->amount,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
@@ -58,36 +61,69 @@ class TransactionService
                 'file_type' => $dto->receipt->getClientMimeType(),
             ]);
 
-            $totalAbonadoActualizado = $contract->transactions()
-                ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-                ->sum('amount');
+            if ($isDownPayment) {
+                $totalAbonadoActualizado = $contract->transactions()
+                    ->where('transaction_type', TransactionType::DOWN_PAYMENT)
+                    ->sum('amount');
 
-            $cuotaInicialPlan = AmortizationPlan::where('contract_id', $contract->id)
-                ->where('installment_number', 0)
-                ->first();
+                $cuotaInicialPlan = AmortizationPlan::where('contract_id', $contract->id)
+                    ->where('installment_number', 0)
+                    ->first();
 
-            if ($cuotaInicialPlan) {
-                if ($totalAbonadoActualizado >= $contract->down_payment_pactada) {
-                    $cuotaInicialPlan->update([
-                        'status' => AmortizationStatus::PAID,
+                if ($cuotaInicialPlan) {
+                    if ($totalAbonadoActualizado >= $contract->down_payment_pactada) {
+                        $cuotaInicialPlan->update([
+                            'status' => AmortizationStatus::PAID,
+                        ]);
+                    } elseif ($totalAbonadoActualizado > 0) {
+                        $cuotaInicialPlan->update([
+                            'status' => AmortizationStatus::PARTIAL,
+                        ]);
+                    }
+                }
+
+                if (bccomp((string) $totalAbonadoActualizado, (string) $contract->down_payment_pactada, 2) >= 0) {
+                    $contract->update([
+                        'status' => ContractStatus::ACTIVO,
                     ]);
-                } elseif ($totalAbonadoActualizado > 0) {
-                    $cuotaInicialPlan->update([
-                        'status' => AmortizationStatus::PARTIAL,
+
+                    $lot = Lot::findOrFail($contract->lot_id);
+
+                    $lot->update([
+                        'status' => LotStatus::VENDIDO,
                     ]);
                 }
             }
 
-            if (bccomp((string) $totalAbonadoActualizado, (string) $contract->down_payment_pactada, 2) >= 0) {
-                $contract->update([
-                    'status' => ContractStatus::ACTIVO,
-                ]);
+            if ($dto->transactionType === TransactionType::REGULAR_PAYMENT) {
+                $selectedNumbers = $dto->installmentNumbers;
 
-                $lot = Lot::findOrFail($contract->lot_id);
+                if (empty($selectedNumbers)) {
+                    $selectedNumbers = AmortizationPlan::where('contract_id', $contract->id)
+                        ->where('installment_number', '>', 0)
+                        ->whereIn('status', [AmortizationStatus::UNPAID, AmortizationStatus::PARTIAL])
+                        ->orderBy('installment_number')
+                        ->pluck('installment_number')
+                        ->toArray();
+                }
 
-                $lot->update([
-                    'status' => LotStatus::VENDIDO,
-                ]);
+                foreach ($selectedNumbers as $installmentNumber) {
+                    $plan = AmortizationPlan::where('contract_id', $contract->id)
+                        ->where('installment_number', (int) $installmentNumber)
+                        ->first();
+
+                    if (!$plan) {
+                        continue;
+                    }
+
+                    $planStatus = (float) $dto->amount >= (float) $plan->installment_value
+                        ? AmortizationStatus::PAID
+                        : AmortizationStatus::PARTIAL;
+
+                    $plan->update([
+                        'status' => $planStatus,
+                    ]);
+                }
             }
 
             return $transaction;
