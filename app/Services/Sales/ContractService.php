@@ -7,14 +7,27 @@ use App\Enums\LotStatus;
 use App\Models\Contract;
 use App\Models\Lot;
 use Illuminate\Support\Facades\DB;
-
+use Illuminate\Validation\ValidationException;
 
 class ContractService
 {
     public function createContract(CreateContractDTO $dto): Contract
     {
         return DB::transaction(function () use ($dto) {
-            // 1. Creamos el contrato (Nace como 'preventa_inactiva' por defecto)
+            $lot = Lot::findOrFail($dto->lotId);
+
+            if (Contract::where('lot_id', $dto->lotId)->exists()) {
+                throw ValidationException::withMessages([
+                    'lot_id' => 'Este lote ya tiene un contrato activo o registrado y no puede volver a asignarse.',
+                ]);
+            }
+
+            if ($lot->status !== LotStatus::DISPONIBLE) {
+                throw ValidationException::withMessages([
+                    'lot_id' => 'Solo se pueden crear contratos sobre lotes disponibles.',
+                ]);
+            }
+
             $contract = Contract::create([
                 'contract_number' => $dto->contractNumber,
                 'customer_id' => $dto->customerId,
@@ -28,20 +41,16 @@ class ContractService
                 'created_by' => $dto->createdBy,
             ]);
 
-            // 2. Regla de Negocio: Separar el lote para que no se venda doble
-            $lot = Lot::findOrFail($dto->lotId);
             $lot->update([
-            'status' => LotStatus::PREVENTA,
+                'status' => LotStatus::PREVENTA,
             ]);
 
             return $contract;
         });
     }
 
-
     public function getAllContracts(int $perPage = 15)
     {
-        // Traemos el contrato junto con los datos de su cliente y lote
         return Contract::with(['customer', 'lot'])->latest()->paginate($perPage);
     }
 }

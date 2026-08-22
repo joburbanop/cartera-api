@@ -16,7 +16,7 @@ class StoreContractRequest extends FormRequest
         return [
             'contract_number' => 'required|string|max:100|unique:contracts,contract_number',
             'customer_id' => 'required|exists:customers,id',
-            'lot_id' => 'required|exists:lots,id',
+            'lot_id' => 'required|exists:lots,id|unique:contracts,lot_id',
             'seller_name' => 'nullable|string|max:150',
             'sale_price' => 'required|numeric|min:0',
             'down_payment_pactada' => 'required|numeric|min:0',
