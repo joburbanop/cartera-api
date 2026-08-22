@@ -34,27 +34,26 @@ class AmortizationService
                 'status' => AmortizationStatus::UNPAID,
             ]);
 
-            // Motor Financiero para calcular las mensualidades
+            // Fórmula sistema francés
             $principal = $contract->sale_price - $contract->down_payment_pactada;
             $rate = $contract->interest_rate / 100;
             $months = $contract->term_months;
             $balance = $principal;
 
-            $fixedQuota = ($rate > 0) 
-                ? $principal * ($rate * pow(1 + $rate, $months)) / (pow(1 + $rate, $months) - 1)
-                : $principal / $months;
+            $fixedQuota = ($rate > 0)
+                ? ($principal * $rate * pow(1 + $rate, $months)) / (pow(1 + $rate, $months) - 1)
+                : ($principal / $months);
 
-            // Generar mensualidades
             for ($i = 1; $i <= $months; $i++) {
                 $interest = $balance * $rate;
                 $principalPayment = $fixedQuota - $interest;
-                $balance -= $principalPayment;
 
-                // Ajuste de última cuota
-                if ($i == $months) {
-                    $principalPayment += $balance; 
+                if ($i === $months) {
+                    $principalPayment = $balance;
                     $fixedQuota = $principalPayment + $interest;
                     $balance = 0;
+                } else {
+                    $balance = max(0, $balance - $principalPayment);
                 }
 
                 $installments[] = AmortizationPlan::create([
@@ -66,7 +65,7 @@ class AmortizationService
                     'principal_value' => round($principalPayment, 2),
                     'interest_value' => round($interest, 2),
                     'remaining_balance' => round(max(0, $balance), 2),
-                    'status' => AmortizationStatus::UNPAID, 
+                    'status' => AmortizationStatus::UNPAID,
                 ]);
             }
 
