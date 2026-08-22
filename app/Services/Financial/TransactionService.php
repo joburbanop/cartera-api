@@ -3,9 +3,11 @@
 namespace App\Services\Financial;
 
 use App\DTOs\CreateTransactionDTO;
+use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\LotStatus;
 use App\Enums\TransactionType;
+use App\Models\AmortizationPlan;
 use App\Models\Contract;
 use App\Models\Lot;
 use App\Models\Receipt;
@@ -56,8 +58,27 @@ class TransactionService
                 'file_type' => $dto->receipt->getClientMimeType(),
             ]);
 
-            if (bccomp($dto->amount, (string) $saldoPendiente, 2) === 0) {
+            $totalAbonadoActualizado = $contract->transactions()
+                ->where('transaction_type', TransactionType::DOWN_PAYMENT)
+                ->sum('amount');
 
+            $cuotaInicialPlan = AmortizationPlan::where('contract_id', $contract->id)
+                ->where('installment_number', 0)
+                ->first();
+
+            if ($cuotaInicialPlan) {
+                if ($totalAbonadoActualizado >= $contract->down_payment_pactada) {
+                    $cuotaInicialPlan->update([
+                        'status' => AmortizationStatus::PAID,
+                    ]);
+                } elseif ($totalAbonadoActualizado > 0) {
+                    $cuotaInicialPlan->update([
+                        'status' => AmortizationStatus::PARTIAL,
+                    ]);
+                }
+            }
+
+            if (bccomp((string) $totalAbonadoActualizado, (string) $contract->down_payment_pactada, 2) >= 0) {
                 $contract->update([
                     'status' => ContractStatus::ACTIVO,
                 ]);
