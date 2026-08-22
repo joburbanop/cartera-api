@@ -17,6 +17,31 @@ use Illuminate\Validation\ValidationException;
 
 class TransactionService
 {
+    public function calculatePaymentImpactForInstallment(AmortizationPlan $plan, string $paymentAmount): array
+    {
+        $currentDebt = $plan->remaining_balance !== null && $plan->remaining_balance !== ''
+            ? (string) $plan->remaining_balance
+            : (string) $plan->installment_value;
+
+        $installmentValue = (string) $plan->installment_value;
+
+        if (bccomp($currentDebt, $installmentValue, 2) === 1) {
+            $currentDebt = $installmentValue;
+        }
+
+        if (bccomp($paymentAmount, $currentDebt, 2) >= 0) {
+            return [
+                'status' => AmortizationStatus::PAID,
+                'remaining_balance' => '0.00',
+            ];
+        }
+
+        return [
+            'status' => AmortizationStatus::OVERDUE,
+            'remaining_balance' => bcsub($currentDebt, $paymentAmount, 2),
+        ];
+    }
+
     public function registerDownPayment(CreateTransactionDTO $dto)
     {
         return DB::transaction(function () use ($dto) {
@@ -116,12 +141,11 @@ class TransactionService
                         continue;
                     }
 
-                    $planStatus = (float) $dto->amount >= (float) $plan->installment_value
-                        ? AmortizationStatus::PAID
-                        : AmortizationStatus::PARTIAL;
+                    $paymentAmount = (string) $dto->amount;
+                    $impact = $this->calculatePaymentImpactForInstallment($plan, $paymentAmount);
 
                     $plan->update([
-                        'status' => $planStatus,
+                        'status' => $impact['status'],
                     ]);
                 }
             }

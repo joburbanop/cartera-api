@@ -30,8 +30,8 @@ class AmortizationService
                 'installment_value' => $contract->down_payment_pactada,
                 'principal_value' => $contract->down_payment_pactada,
                 'interest_value' => 0,
-                'remaining_balance' => $contract->sale_price - $contract->down_payment_pactada,
-                'status' => AmortizationStatus::UNPAID, 
+                'remaining_balance' => $contract->down_payment_pactada,
+                'status' => AmortizationStatus::UNPAID,
             ]);
 
             // Motor Financiero para calcular las mensualidades
