@@ -31,9 +31,14 @@ class AmortizationController extends Controller
     {
         $plan = $this->amortizationService->getPlanByContract($contract);
 
-        // Si el contrato aún no tiene cuotas generadas
         if ($plan->isEmpty()) {
-            return $this->successResponse([], 'Este contrato aún no tiene un plan de amortización generado.', 200);
+            $generatedPlan = $this->amortizationService->generateVersionOne($contract);
+
+            return $this->successResponse(
+                $generatedPlan,
+                'Plan de amortización generado automáticamente al ingresar al contrato.',
+                200
+            );
         }
 
         return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
