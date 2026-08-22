@@ -25,7 +25,7 @@ class StoreTransactionRequest extends FormRequest
         return [
             'amount' => 'required|numeric|gt:0',
             'transaction_date' => 'required|date',
-            'payment_method' => 'required|in:cash,bank,barter',
+            'payment_method' => 'required|in:cash,bank,barter,transfer,card',
             'receipt' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ];
     }
