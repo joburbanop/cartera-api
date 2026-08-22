@@ -17,6 +17,12 @@ use Illuminate\Validation\ValidationException;
 
 class TransactionService
 {
+    public function __construct(
+        private ?AmortizationRecalculatorService $amortizationRecalculatorService = null
+    ) {
+        $this->amortizationRecalculatorService ??= new AmortizationRecalculatorService();
+    }
+
     public function calculatePaymentImpactForInstallment(AmortizationPlan $plan, string $paymentAmount, ?Contract $contract = null): array
     {
         $installmentValue = (string) $plan->installment_value;
@@ -27,21 +33,28 @@ class TransactionService
         $interestAlreadyPaid = (string) ($plan->interest_paid ?? '0.00');
         $principalAlreadyPaid = (string) ($plan->principal_paid ?? '0.00');
         $totalAlreadyPaid = bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2);
-        $totalCumulativePaid = bcadd($totalAlreadyPaid, $paymentAmount, 2);
+        $currentQuotaDebt = (string) ($plan->quota_debt ?? '0.00');
+        $pendingDebt = bccomp($currentQuotaDebt, '0.00', 2) > 0
+            ? $currentQuotaDebt
+            : bcsub($installmentValue, $totalAlreadyPaid, 2);
+        $pendingDebt = max('0.00', $pendingDebt);
 
         $remainingInterestToPay = bcsub($interestValue, $interestAlreadyPaid, 2);
         $remainingPrincipalToPay = bcsub($principalValue, $principalAlreadyPaid, 2);
 
-        if (bccomp($totalCumulativePaid, $installmentValue, 2) >= 0) {
+        if (bccomp($paymentAmount, $pendingDebt, 2) >= 0) {
             $principalPaidThisTransaction = bcsub($principalValue, $principalAlreadyPaid, 2);
             $newRemainingBalance = bcsub($previousRemainingBalance, $principalPaidThisTransaction, 2);
+            $surplus = bcsub($paymentAmount, $pendingDebt, 2);
+            $adjustedRemainingBalance = bcsub($newRemainingBalance, $surplus, 2);
 
             return [
                 'status' => AmortizationStatus::PAID,
-                'remaining_balance' => max('0.00', $newRemainingBalance),
+                'remaining_balance' => max('0.00', $adjustedRemainingBalance),
                 'quota_debt' => '0.00',
                 'interest_paid' => $interestValue,
                 'principal_paid' => $principalValue,
+                'excedente' => $surplus,
             ];
         }
 
@@ -78,6 +91,7 @@ class TransactionService
             'quota_debt' => max('0.00', $quotaDebt),
             'interest_paid' => $newInterestPaid,
             'principal_paid' => $newPrincipalPaid,
+            'excedente' => '0.00',
         ];
     }
 
@@ -190,6 +204,15 @@ class TransactionService
                         'principal_paid' => $impact['principal_paid'],
                         'quota_debt' => $impact['quota_debt'],
                     ]);
+
+                    if (isset($impact['excedente']) && bccomp((string) $impact['excedente'], '0.00', 2) > 0 && !empty($dto->paymentOption)) {
+                        $this->amortizationRecalculatorService->applyExcess(
+                            $contract,
+                            $plan,
+                            (string) $impact['excedente'],
+                            $dto->paymentOption
+                        );
+                    }
 
                     if ($impact['status'] === AmortizationStatus::OVERDUE) {
                         $contract->update([

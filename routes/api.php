@@ -57,4 +57,5 @@ Route::middleware('auth:sanctum')->group(function () {
     // AMORTIZACIONES
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);
     Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show']);
+    Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf']);
 });

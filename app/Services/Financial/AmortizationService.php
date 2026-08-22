@@ -35,6 +35,7 @@ class AmortizationService
                 'remaining_balance' => $principal,
                 'quota_debt' => $contract->down_payment_pactada,
                 'status' => AmortizationStatus::UNPAID,
+                'is_active' => true,
             ]);
 
             // Fórmula sistema francés
@@ -69,6 +70,7 @@ class AmortizationService
                     'remaining_balance' => round(max(0, $balance), 2),
                     'quota_debt' => round($fixedQuota, 2),
                     'status' => AmortizationStatus::UNPAID,
+                    'is_active' => true,
                 ]);
             }
 
@@ -76,11 +78,36 @@ class AmortizationService
         });
     }
 
-
-    public function getPlanByContract(Contract $contract)
+    public function getAvailableVersions(Contract $contract): array
     {
-        return AmortizationPlan::where('contract_id', $contract->id)
-            ->orderBy('installment_number', 'asc')
-            ->get();
+        $versions = AmortizationPlan::where('contract_id', $contract->id)
+            ->select('version')
+            ->distinct()
+            ->orderBy('version', 'asc')
+            ->pluck('version')
+            ->map(fn ($version) => (int) $version)
+            ->values()
+            ->all();
+
+        return $versions;
+    }
+
+    public function getPlanByContract(Contract $contract, ?int $version = null)
+    {
+        $query = AmortizationPlan::where('contract_id', $contract->id);
+
+        if ($version !== null) {
+            $query->where('version', $version);
+        } elseif (AmortizationPlan::where('contract_id', $contract->id)->where('is_active', true)->exists()) {
+            $query->where('is_active', true);
+        } else {
+            $query->where('version', function ($subQuery) use ($contract) {
+                $subQuery->selectRaw('MAX(version)')
+                    ->from('amortization_plans')
+                    ->where('contract_id', $contract->id);
+            });
+        }
+
+        return $query->orderBy('installment_number', 'asc')->get();
     }
 }

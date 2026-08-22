@@ -21,6 +21,7 @@ class AmortizationPlan extends Model
         'principal_paid',
         'quota_debt',
         'status',
+        'is_active',
     ];
 
     // Casteos estrictos para seguridad matemática y de estados
@@ -36,6 +37,7 @@ class AmortizationPlan extends Model
             'principal_paid' => 'decimal:2',
             'quota_debt' => 'decimal:2',
             'status' => AmortizationStatus::class, // <-- Magia del Enum aquí
+            'is_active' => 'boolean',
         ];
     }
 

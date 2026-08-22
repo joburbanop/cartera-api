@@ -17,6 +17,7 @@ class CreateTransactionDTO
         public readonly PaymentMethod $paymentMethod,
         public readonly TransactionType $transactionType,
         public readonly array $installmentNumbers,
+        public readonly ?string $paymentOption,
         public readonly UploadedFile $receipt,
     ) {}
 
@@ -35,6 +36,7 @@ class CreateTransactionDTO
                 $request->validated('transaction_type', TransactionType::DOWN_PAYMENT->value)
             ),
             installmentNumbers: array_values(array_map('intval', $request->validated('installment_numbers', []))),
+            paymentOption: $request->validated('payment_option', $request->validated('surplus_action', null)),
             receipt: $request->file('receipt'),
         );
     }
