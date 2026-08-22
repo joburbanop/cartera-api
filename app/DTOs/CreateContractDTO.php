@@ -16,6 +16,9 @@ class CreateContractDTO
         public readonly int $termMonths,
         public readonly float $interestRate,
         public readonly string $startDate,
+        public readonly string $initialPaymentDate,
+        public readonly string $regularPaymentStartDate,
+        public readonly int $preventaInstallmentsCount,
         public readonly ?int $createdBy
     ) {}
 
@@ -29,10 +32,12 @@ class CreateContractDTO
             salePrice: $request->validated('sale_price'),
             downPaymentPactada: $request->validated('down_payment_pactada'),
             termMonths: $request->validated('term_months'),
-            // Si no envían tasa, respetamos el 1.00 por defecto de tu migración
-            interestRate: $request->validated('interest_rate') ?? 1.00, 
+            interestRate: $request->validated('interest_rate') ?? 1.00,
             startDate: $request->validated('start_date'),
-            createdBy: auth()->id() // Extrae el ID del token de Sanctum
+            initialPaymentDate: $request->validated('initial_payment_date'),
+            regularPaymentStartDate: $request->validated('regular_payment_start_date'),
+            preventaInstallmentsCount: $request->validated('preventa_installments_count') ?? 0,
+            createdBy: auth()->id()
         );
     }
 }

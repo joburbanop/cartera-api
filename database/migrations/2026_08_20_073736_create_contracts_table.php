@@ -25,6 +25,9 @@ return new class extends Migration
             $table->integer('term_months');                 // Plazo en meses (ej: 36, 48, 60)
             $table->decimal('interest_rate', 5, 2)->default(1.00); // Tasa mensual pactada (Default 1.00%)
             $table->date('start_date');                     // Fecha de firma o inicio de abonos
+            $table->date('initial_payment_date');           // Fecha de la cuota inicial (preventa)
+            $table->date('regular_payment_start_date');     // Fecha de inicio de cuotas ordinarias mensuales
+            $table->integer('preventa_installments_count')->default(0); // Cuotas que se pactan en preventa
             
             // Estado de control del ciclo de vida
             $table->string('status', 50)->default('preventa_inactiva'); // preventa_inactiva, activo, terminado...

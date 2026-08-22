@@ -38,6 +38,9 @@ class ContractService
                 'term_months' => $dto->termMonths,
                 'interest_rate' => $dto->interestRate,
                 'start_date' => $dto->startDate,
+                'initial_payment_date' => $dto->initialPaymentDate,
+                'regular_payment_start_date' => $dto->regularPaymentStartDate,
+                'preventa_installments_count' => $dto->preventaInstallmentsCount,
                 'created_by' => $dto->createdBy,
             ]);
 

@@ -23,6 +23,9 @@ class StoreContractRequest extends FormRequest
             'term_months' => 'required|integer|min:1',
             'interest_rate' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
+            'initial_payment_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'regular_payment_start_date' => ['required', 'date', 'after_or_equal:initial_payment_date'],
+            'preventa_installments_count' => ['required', 'integer', 'min:0'],
         ];
     }
 }

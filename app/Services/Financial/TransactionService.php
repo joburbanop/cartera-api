@@ -19,27 +19,65 @@ class TransactionService
 {
     public function calculatePaymentImpactForInstallment(AmortizationPlan $plan, string $paymentAmount, ?Contract $contract = null): array
     {
-        $currentDebt = (string) $plan->installment_value;
+        $installmentValue = (string) $plan->installment_value;
+        $interestValue = (string) ($plan->interest_value ?? '0.00');
+        $principalValue = (string) ($plan->principal_value ?? bcsub($installmentValue, $interestValue, 2));
+        $previousRemainingBalance = (string) ($plan->remaining_balance ?? $installmentValue);
 
-        if (bccomp($paymentAmount, $currentDebt, 2) >= 0) {
+        $interestAlreadyPaid = (string) ($plan->interest_paid ?? '0.00');
+        $principalAlreadyPaid = (string) ($plan->principal_paid ?? '0.00');
+        $totalAlreadyPaid = bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2);
+        $totalCumulativePaid = bcadd($totalAlreadyPaid, $paymentAmount, 2);
+
+        $remainingInterestToPay = bcsub($interestValue, $interestAlreadyPaid, 2);
+        $remainingPrincipalToPay = bcsub($principalValue, $principalAlreadyPaid, 2);
+
+        if (bccomp($totalCumulativePaid, $installmentValue, 2) >= 0) {
+            $principalPaidThisTransaction = bcsub($principalValue, $principalAlreadyPaid, 2);
+            $newRemainingBalance = bcsub($previousRemainingBalance, $principalPaidThisTransaction, 2);
+
             return [
                 'status' => AmortizationStatus::PAID,
-                'remaining_balance' => '0.00',
+                'remaining_balance' => max('0.00', $newRemainingBalance),
+                'quota_debt' => '0.00',
+                'interest_paid' => $interestValue,
+                'principal_paid' => $principalValue,
             ];
         }
 
+        $interestPaidNow = bccomp($paymentAmount, $remainingInterestToPay, 2) <= 0
+            ? $paymentAmount
+            : $remainingInterestToPay;
+
+        $paymentLeftForCapital = bcsub($paymentAmount, $interestPaidNow, 2);
+        $principalPaidNow = bccomp($paymentLeftForCapital, $remainingPrincipalToPay, 2) <= 0
+            ? $paymentLeftForCapital
+            : $remainingPrincipalToPay;
+
+        $newInterestPaid = bcadd($interestAlreadyPaid, $interestPaidNow, 2);
+        $newPrincipalPaid = bcadd($principalAlreadyPaid, $principalPaidNow, 2);
+        $newTotalPaid = bcadd($newInterestPaid, $newPrincipalPaid, 2);
+
+        $quotaDebt = bcsub($installmentValue, $newTotalPaid, 2);
+        $newRemainingBalance = bcsub($previousRemainingBalance, $principalPaidNow, 2);
         $isPreventa = $contract && $contract->status === ContractStatus::PREVENTA_INACTIVA;
 
-        if ($contract && $isPreventa) {
+        if ($isPreventa) {
             return [
                 'status' => AmortizationStatus::PARTIAL,
-                'remaining_balance' => bcsub($currentDebt, $paymentAmount, 2),
+                'remaining_balance' => max('0.00', $newRemainingBalance),
+                'quota_debt' => max('0.00', $quotaDebt),
+                'interest_paid' => $newInterestPaid,
+                'principal_paid' => $newPrincipalPaid,
             ];
         }
 
         return [
             'status' => AmortizationStatus::OVERDUE,
-            'remaining_balance' => bcsub($currentDebt, $paymentAmount, 2),
+            'remaining_balance' => max('0.00', $newRemainingBalance),
+            'quota_debt' => max('0.00', $quotaDebt),
+            'interest_paid' => $newInterestPaid,
+            'principal_paid' => $newPrincipalPaid,
         ];
     }
 
@@ -147,9 +185,17 @@ class TransactionService
 
                     $plan->update([
                         'status' => $impact['status'],
-                        // El saldo restante de la amortización representa el flujo del proyecto y no debe
-                        // sobreescribirse con la deuda de la cuota por un pago parcial o vencido.
+                        'remaining_balance' => $impact['remaining_balance'],
+                        'interest_paid' => $impact['interest_paid'],
+                        'principal_paid' => $impact['principal_paid'],
+                        'quota_debt' => $impact['quota_debt'],
                     ]);
+
+                    if ($impact['status'] === AmortizationStatus::OVERDUE) {
+                        $contract->update([
+                            'status' => ContractStatus::VENCIDO,
+                        ]);
+                    }
                 }
             }
 

@@ -17,6 +17,9 @@ class AmortizationPlan extends Model
         'principal_value',
         'interest_value',
         'remaining_balance',
+        'interest_paid',
+        'principal_paid',
+        'quota_debt',
         'status',
     ];
 
@@ -29,6 +32,9 @@ class AmortizationPlan extends Model
             'principal_value' => 'decimal:2',
             'interest_value' => 'decimal:2',
             'remaining_balance' => 'decimal:2',
+            'interest_paid' => 'decimal:2',
+            'principal_paid' => 'decimal:2',
+            'quota_debt' => 'decimal:2',
             'status' => AmortizationStatus::class, // <-- Magia del Enum aquí
         ];
     }

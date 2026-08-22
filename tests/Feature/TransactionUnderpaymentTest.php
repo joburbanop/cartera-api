@@ -28,7 +28,69 @@ it('marks underpayment as overdue when contract is active', function () {
         ->and($result['remaining_balance'])->toBe('30.00');
 });
 
-it('uses the installment value as debt when the plan residual is zero', function () {
+it('applies a partial payment by interest first and keeps quota debt separate from the real amortization balance', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '4266081.34',
+        'interest_value' => '1620000.00',
+        'principal_value' => '2646081.34',
+        'remaining_balance' => '87404400.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '4266081.34',
+        'status' => AmortizationStatus::UNPAID->value,
+        'due_date' => now()->subDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
+        $plan,
+        '2000000.00',
+        $contract
+    );
+
+    expect($result['status'])->toBe(AmortizationStatus::OVERDUE)
+        ->and($result['interest_paid'])->toBe('1620000.00')
+        ->and($result['principal_paid'])->toBe('380000.00')
+        ->and($result['quota_debt'])->toBe('2266081.34')
+        ->and($result['remaining_balance'])->toBe('87024400.00');
+});
+
+it('accumulates multiple partial payments on the same installment without resetting the quota debt', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '4266081.34',
+        'interest_value' => '1620000.00',
+        'principal_value' => '2646081.34',
+        'remaining_balance' => '87024400.00',
+        'interest_paid' => '1620000.00',
+        'principal_paid' => '380000.00',
+        'quota_debt' => '2266081.34',
+        'status' => AmortizationStatus::OVERDUE->value,
+        'due_date' => now()->subDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
+        $plan,
+        '1620000.00',
+        $contract
+    );
+
+    expect($result['status'])->toBe(AmortizationStatus::OVERDUE)
+        ->and($result['interest_paid'])->toBe('1620000.00')
+        ->and($result['principal_paid'])->toBe('2000000.00')
+        ->and($result['quota_debt'])->toBe('646081.34')
+        ->and($result['remaining_balance'])->toBe('85404400.00');
+});
+
+it('recalculates the real amortization balance from the previous residual when the plan residual is zero', function () {
     $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,
     ]);
@@ -36,6 +98,7 @@ it('uses the installment value as debt when the plan residual is zero', function
     $plan = new AmortizationPlan([
         'installment_number' => 1,
         'installment_value' => '100.00',
+        'interest_value' => '0.00',
         'remaining_balance' => '0.00',
         'status' => AmortizationStatus::UNPAID->value,
     ]);
@@ -47,10 +110,11 @@ it('uses the installment value as debt when the plan residual is zero', function
     );
 
     expect($result['status'])->toBe(AmortizationStatus::OVERDUE)
-        ->and($result['remaining_balance'])->toBe('30.00');
+        ->and($result['quota_debt'])->toBe('30.00')
+        ->and($result['remaining_balance'])->toBe('0.00');
 });
 
-it('ignores the project residual and uses the installment value as the real debt', function () {
+it('keeps the real amortization balance separate from the overdue quota debt even when the residual is larger', function () {
     $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,
     ]);
@@ -58,6 +122,7 @@ it('ignores the project residual and uses the installment value as the real debt
     $plan = new AmortizationPlan([
         'installment_number' => 1,
         'installment_value' => '100.00',
+        'interest_value' => '0.00',
         'remaining_balance' => '9000.00',
         'status' => AmortizationStatus::UNPAID->value,
     ]);
@@ -69,7 +134,39 @@ it('ignores the project residual and uses the installment value as the real debt
     );
 
     expect($result['status'])->toBe(AmortizationStatus::OVERDUE)
-        ->and($result['remaining_balance'])->toBe('30.00');
+        ->and($result['quota_debt'])->toBe('30.00')
+        ->and($result['remaining_balance'])->toBe('8930.00');
+});
+
+it('closes the installment when the cumulative payments cover the full cuota value', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '4266081.34',
+        'interest_value' => '1620000.00',
+        'principal_value' => '2646081.34',
+        'remaining_balance' => '87024400.00',
+        'interest_paid' => '1620000.00',
+        'principal_paid' => '380000.00',
+        'quota_debt' => '2266081.34',
+        'status' => AmortizationStatus::OVERDUE->value,
+        'due_date' => now()->subDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
+        $plan,
+        '2266081.34',
+        $contract
+    );
+
+    expect($result['status'])->toBe(AmortizationStatus::PAID)
+        ->and($result['quota_debt'])->toBe('0.00')
+        ->and($result['interest_paid'])->toBe('1620000.00')
+        ->and($result['principal_paid'])->toBe('2646081.34')
+        ->and($result['remaining_balance'])->toBe('84758318.66');
 });
 
 it('uses the total loan balance after the down payment for the first amortization row', function () {

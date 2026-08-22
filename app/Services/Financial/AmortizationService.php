@@ -33,6 +33,7 @@ class AmortizationService
                 'principal_value' => $contract->down_payment_pactada,
                 'interest_value' => 0,
                 'remaining_balance' => $principal,
+                'quota_debt' => $contract->down_payment_pactada,
                 'status' => AmortizationStatus::UNPAID,
             ]);
 
@@ -66,6 +67,7 @@ class AmortizationService
                     'principal_value' => round($principalPayment, 2),
                     'interest_value' => round($interest, 2),
                     'remaining_balance' => round(max(0, $balance), 2),
+                    'quota_debt' => round($fixedQuota, 2),
                     'status' => AmortizationStatus::UNPAID,
                 ]);
             }
