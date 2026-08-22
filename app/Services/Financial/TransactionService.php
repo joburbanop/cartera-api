@@ -17,22 +17,23 @@ use Illuminate\Validation\ValidationException;
 
 class TransactionService
 {
-    public function calculatePaymentImpactForInstallment(AmortizationPlan $plan, string $paymentAmount): array
+    public function calculatePaymentImpactForInstallment(AmortizationPlan $plan, string $paymentAmount, ?Contract $contract = null): array
     {
-        $currentDebt = $plan->remaining_balance !== null && $plan->remaining_balance !== ''
-            ? (string) $plan->remaining_balance
-            : (string) $plan->installment_value;
-
-        $installmentValue = (string) $plan->installment_value;
-
-        if (bccomp($currentDebt, $installmentValue, 2) === 1) {
-            $currentDebt = $installmentValue;
-        }
+        $currentDebt = (string) $plan->installment_value;
 
         if (bccomp($paymentAmount, $currentDebt, 2) >= 0) {
             return [
                 'status' => AmortizationStatus::PAID,
                 'remaining_balance' => '0.00',
+            ];
+        }
+
+        $isPreventa = $contract && $contract->status === ContractStatus::PREVENTA_INACTIVA;
+
+        if ($contract && $isPreventa) {
+            return [
+                'status' => AmortizationStatus::PARTIAL,
+                'remaining_balance' => bcsub($currentDebt, $paymentAmount, 2),
             ];
         }
 
@@ -142,10 +143,12 @@ class TransactionService
                     }
 
                     $paymentAmount = (string) $dto->amount;
-                    $impact = $this->calculatePaymentImpactForInstallment($plan, $paymentAmount);
+                    $impact = $this->calculatePaymentImpactForInstallment($plan, $paymentAmount, $contract);
 
                     $plan->update([
                         'status' => $impact['status'],
+                        // El saldo restante de la amortización representa el flujo del proyecto y no debe
+                        // sobreescribirse con la deuda de la cuota por un pago parcial o vencido.
                     ]);
                 }
             }

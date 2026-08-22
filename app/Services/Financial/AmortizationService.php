@@ -22,6 +22,8 @@ class AmortizationService
             $startDate = Carbon::parse($contract->start_date);
 
             // Cuota Inicial (Installment 0)
+            $principal = $contract->sale_price - $contract->down_payment_pactada;
+
             $installments[] = AmortizationPlan::create([
                 'contract_id' => $contract->id,
                 'version' => 1,
@@ -30,12 +32,11 @@ class AmortizationService
                 'installment_value' => $contract->down_payment_pactada,
                 'principal_value' => $contract->down_payment_pactada,
                 'interest_value' => 0,
-                'remaining_balance' => $contract->down_payment_pactada,
+                'remaining_balance' => $principal,
                 'status' => AmortizationStatus::UNPAID,
             ]);
 
             // Fórmula sistema francés
-            $principal = $contract->sale_price - $contract->down_payment_pactada;
             $rate = $contract->interest_rate / 100;
             $months = $contract->term_months;
             $balance = $principal;
