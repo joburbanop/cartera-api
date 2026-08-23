@@ -34,10 +34,6 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        $this->call([
-            ProjectSeeder::class,
-            LotSeeder::class,
-            ContractSeeder::class,
-        ]);
+        // Solo se crean los usuarios base para autenticación.
     }
 }

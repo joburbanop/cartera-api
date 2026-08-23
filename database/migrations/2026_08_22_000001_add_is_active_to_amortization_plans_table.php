@@ -8,15 +8,19 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('amortization_plans', function (Blueprint $table) {
-            $table->boolean('is_active')->default(true)->after('status');
-        });
+        if (!Schema::hasColumn('amortization_plans', 'is_active')) {
+            Schema::table('amortization_plans', function (Blueprint $table) {
+                $table->boolean('is_active')->default(true)->after('status');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('amortization_plans', function (Blueprint $table) {
-            $table->dropColumn('is_active');
-        });
+        if (Schema::hasColumn('amortization_plans', 'is_active')) {
+            Schema::table('amortization_plans', function (Blueprint $table) {
+                $table->dropColumn('is_active');
+            });
+        }
     }
 };

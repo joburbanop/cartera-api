@@ -24,6 +24,7 @@ class Contract extends Model
         'interest_rate',
         'start_date',
         'initial_payment_date',
+        'first_installment_date',
         'regular_payment_start_date',
         'preventa_installments_count',
         'status',
@@ -37,6 +38,7 @@ class Contract extends Model
         return [
             'start_date' => 'date',
             'initial_payment_date' => 'date',
+            'first_installment_date' => 'date',
             'regular_payment_start_date' => 'date',
             'sale_price' => 'decimal:2',
             'down_payment_pactada' => 'decimal:2',

@@ -19,10 +19,12 @@ return new class extends Migration
             $table->decimal('installment_value', 15, 2);
             $table->decimal('principal_value', 15, 2);
             $table->decimal('interest_value', 15, 2);
+            $table->decimal('extra_payment', 15, 2)->default(0);
             $table->decimal('remaining_balance', 15, 2);
             $table->decimal('interest_paid', 15, 2)->default(0);
             $table->decimal('principal_paid', 15, 2)->default(0);
             $table->decimal('quota_debt', 15, 2)->default(0);
+            $table->boolean('is_active')->default(true);
 
             // Lo mantenemos como string por flexibilidad en DB, el Enum de PHP hará el trabajo duro
             $table->string('status', 50)->default('sin_pagar');

@@ -30,6 +30,28 @@ class TransactionService
         $principalValue = (string) ($plan->principal_value ?? bcsub($installmentValue, $interestValue, 2));
         $previousRemainingBalance = (string) ($plan->remaining_balance ?? $installmentValue);
 
+        $rawInstallmentNumber = $plan->installment_number ?? null;
+        $isInitialInstallment = $rawInstallmentNumber === 0
+            || strtolower((string) $rawInstallmentNumber) === 'inicial'
+            || strtolower((string) $rawInstallmentNumber) === 'incial';
+
+        if ($isInitialInstallment) {
+            $currentQuotaDebt = (string) ($plan->quota_debt ?? $installmentValue);
+            $updatedQuotaDebt = max('0.00', bcsub($currentQuotaDebt, $paymentAmount, 2));
+            $status = bccomp($updatedQuotaDebt, '0.00', 2) === 0
+                ? AmortizationStatus::PAID
+                : AmortizationStatus::PARTIAL;
+
+            return [
+                'status' => $status,
+                'remaining_balance' => $previousRemainingBalance,
+                'quota_debt' => $updatedQuotaDebt,
+                'interest_paid' => '0.00',
+                'principal_paid' => '0.00',
+                'excedente' => bccomp($paymentAmount, $currentQuotaDebt, 2) > 0 ? bcsub($paymentAmount, $currentQuotaDebt, 2) : '0.00',
+            ];
+        }
+
         $interestAlreadyPaid = (string) ($plan->interest_paid ?? '0.00');
         $principalAlreadyPaid = (string) ($plan->principal_paid ?? '0.00');
         $totalAlreadyPaid = bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2);
@@ -42,56 +64,53 @@ class TransactionService
         $remainingInterestToPay = bcsub($interestValue, $interestAlreadyPaid, 2);
         $remainingPrincipalToPay = bcsub($principalValue, $principalAlreadyPaid, 2);
 
-        if (bccomp($paymentAmount, $pendingDebt, 2) >= 0) {
-            $principalPaidThisTransaction = bcsub($principalValue, $principalAlreadyPaid, 2);
-            $newRemainingBalance = bcsub($previousRemainingBalance, $principalPaidThisTransaction, 2);
-            $surplus = bcsub($paymentAmount, $pendingDebt, 2);
-            $adjustedRemainingBalance = bcsub($newRemainingBalance, $surplus, 2);
+        if (bccomp($paymentAmount, $pendingDebt, 2) < 0) {
+            $interestPaidNow = bccomp($paymentAmount, $remainingInterestToPay, 2) <= 0
+                ? $paymentAmount
+                : $remainingInterestToPay;
+
+            $paymentLeftForCapital = bcsub($paymentAmount, $interestPaidNow, 2);
+            $principalPaidNow = bccomp($paymentLeftForCapital, $remainingPrincipalToPay, 2) <= 0
+                ? $paymentLeftForCapital
+                : $remainingPrincipalToPay;
+
+            $newInterestPaid = bcadd($interestAlreadyPaid, $interestPaidNow, 2);
+            $newPrincipalPaid = bcadd($principalAlreadyPaid, $principalPaidNow, 2);
+            $updatedQuotaDebt = max('0.00', bcsub($pendingDebt, $paymentAmount, 2));
+            $status = $contract && $contract->status === ContractStatus::PREVENTA_INACTIVA
+                ? AmortizationStatus::PARTIAL
+                : AmortizationStatus::OVERDUE;
 
             return [
+                'status' => $status,
+                'remaining_balance' => $previousRemainingBalance,
+                'quota_debt' => $updatedQuotaDebt,
+                'interest_paid' => $newInterestPaid,
+                'principal_paid' => $newPrincipalPaid,
+                'excedente' => '0.00',
+            ];
+        }
+
+        if (bccomp($paymentAmount, $pendingDebt, 2) === 0) {
+            return [
                 'status' => AmortizationStatus::PAID,
-                'remaining_balance' => max('0.00', $adjustedRemainingBalance),
+                'remaining_balance' => $previousRemainingBalance,
                 'quota_debt' => '0.00',
                 'interest_paid' => $interestValue,
                 'principal_paid' => $principalValue,
-                'excedente' => $surplus,
+                'excedente' => '0.00',
             ];
         }
 
-        $interestPaidNow = bccomp($paymentAmount, $remainingInterestToPay, 2) <= 0
-            ? $paymentAmount
-            : $remainingInterestToPay;
-
-        $paymentLeftForCapital = bcsub($paymentAmount, $interestPaidNow, 2);
-        $principalPaidNow = bccomp($paymentLeftForCapital, $remainingPrincipalToPay, 2) <= 0
-            ? $paymentLeftForCapital
-            : $remainingPrincipalToPay;
-
-        $newInterestPaid = bcadd($interestAlreadyPaid, $interestPaidNow, 2);
-        $newPrincipalPaid = bcadd($principalAlreadyPaid, $principalPaidNow, 2);
-        $newTotalPaid = bcadd($newInterestPaid, $newPrincipalPaid, 2);
-
-        $quotaDebt = bcsub($installmentValue, $newTotalPaid, 2);
-        $newRemainingBalance = bcsub($previousRemainingBalance, $principalPaidNow, 2);
-        $isPreventa = $contract && $contract->status === ContractStatus::PREVENTA_INACTIVA;
-
-        if ($isPreventa) {
-            return [
-                'status' => AmortizationStatus::PARTIAL,
-                'remaining_balance' => max('0.00', $newRemainingBalance),
-                'quota_debt' => max('0.00', $quotaDebt),
-                'interest_paid' => $newInterestPaid,
-                'principal_paid' => $newPrincipalPaid,
-            ];
-        }
+        $surplus = bcsub($paymentAmount, $pendingDebt, 2);
 
         return [
-            'status' => AmortizationStatus::OVERDUE,
-            'remaining_balance' => max('0.00', $newRemainingBalance),
-            'quota_debt' => max('0.00', $quotaDebt),
-            'interest_paid' => $newInterestPaid,
-            'principal_paid' => $newPrincipalPaid,
-            'excedente' => '0.00',
+            'status' => AmortizationStatus::PAID,
+            'remaining_balance' => max('0.00', bcsub($previousRemainingBalance, $surplus, 2)),
+            'quota_debt' => '0.00',
+            'interest_paid' => $interestValue,
+            'principal_paid' => $principalValue,
+            'excedente' => $surplus,
         ];
     }
 
@@ -149,6 +168,15 @@ class TransactionService
                     ->first();
 
                 if ($cuotaInicialPlan) {
+                    $nuevaDeudaInicial = max('0.00', bcsub((string) ($cuotaInicialPlan->quota_debt ?? $contract->down_payment_pactada), (string) $dto->amount, 2));
+                    $cuotaInicialPlan->update([
+                        'quota_debt' => $nuevaDeudaInicial,
+                        'remaining_balance' => (string) ($cuotaInicialPlan->remaining_balance ?? ($contract->sale_price - $contract->down_payment_pactada)),
+                        'status' => bccomp($nuevaDeudaInicial, '0.00', 2) === 0
+                            ? AmortizationStatus::PAID
+                            : AmortizationStatus::PARTIAL,
+                    ]);
+
                     if ($totalAbonadoActualizado >= $contract->down_payment_pactada) {
                         $cuotaInicialPlan->update([
                             'status' => AmortizationStatus::PAID,
@@ -203,6 +231,7 @@ class TransactionService
                         'interest_paid' => $impact['interest_paid'],
                         'principal_paid' => $impact['principal_paid'],
                         'quota_debt' => $impact['quota_debt'],
+                        'extra_payment' => $impact['excedente'] ?? '0.00',
                     ]);
 
                     if (isset($impact['excedente']) && bccomp((string) $impact['excedente'], '0.00', 2) > 0 && !empty($dto->paymentOption)) {

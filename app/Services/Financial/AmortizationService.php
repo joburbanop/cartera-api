@@ -11,6 +11,15 @@ use Carbon\Carbon;
 
 class AmortizationService
 {
+    public function getRegularInstallmentDueDate(Contract $contract, int $installmentNumber): Carbon
+    {
+        $firstInstallmentDate = $contract->first_installment_date
+            ?? $contract->regular_payment_start_date
+            ?? $contract->start_date;
+
+        return Carbon::parse($firstInstallmentDate)->addMonths($installmentNumber - 1);
+    }
+
     public function generateVersionOne(Contract $contract): array
     {
         if (AmortizationPlan::where('contract_id', $contract->id)->exists()) {
@@ -63,7 +72,7 @@ class AmortizationService
                     'contract_id' => $contract->id,
                     'version' => 1,
                     'installment_number' => $i,
-                    'due_date' => $startDate->copy()->addMonths($i),
+                    'due_date' => $this->getRegularInstallmentDueDate($contract, $i),
                     'installment_value' => round($fixedQuota, 2),
                     'principal_value' => round($principalPayment, 2),
                     'interest_value' => round($interest, 2),

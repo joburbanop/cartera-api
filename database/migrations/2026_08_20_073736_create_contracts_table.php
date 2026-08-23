@@ -26,6 +26,7 @@ return new class extends Migration
             $table->decimal('interest_rate', 5, 2)->default(1.00); // Tasa mensual pactada (Default 1.00%)
             $table->date('start_date');                     // Fecha de firma o inicio de abonos
             $table->date('initial_payment_date');           // Fecha de la cuota inicial (preventa)
+            $table->date('first_installment_date');         // Fecha de la primera cuota mensual ordinaria
             $table->date('regular_payment_start_date');     // Fecha de inicio de cuotas ordinarias mensuales
             $table->integer('preventa_installments_count')->default(0); // Cuotas que se pactan en preventa
             
