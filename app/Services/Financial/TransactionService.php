@@ -225,22 +225,30 @@ class TransactionService
                     $paymentAmount = (string) $dto->amount;
                     $impact = $this->calculatePaymentImpactForInstallment($plan, $paymentAmount, $contract);
 
-                    $plan->update([
-                        'status' => $impact['status'],
-                        'remaining_balance' => $impact['remaining_balance'],
-                        'interest_paid' => $impact['interest_paid'],
-                        'principal_paid' => $impact['principal_paid'],
-                        'quota_debt' => $impact['quota_debt'],
-                        'extra_payment' => $impact['excedente'] ?? '0.00',
-                    ]);
+                    $excedente = isset($impact['excedente']) ? (string) $impact['excedente'] : '0.00';
+                    $isReducedTermOption = bccomp($excedente, '0.00', 2) > 0
+                        && !empty($dto->paymentOption)
+                        && strtolower((string) $dto->paymentOption) === 'reducir_plazo';
 
-                    if (isset($impact['excedente']) && bccomp((string) $impact['excedente'], '0.00', 2) > 0 && !empty($dto->paymentOption)) {
+                    if ($isReducedTermOption) {
+                        $baseRemainingBalance = (string) ($plan->remaining_balance ?? '0.00');
+
                         $this->amortizationRecalculatorService->applyExcess(
                             $contract,
                             $plan,
-                            (string) $impact['excedente'],
-                            $dto->paymentOption
+                            $excedente,
+                            $dto->paymentOption,
+                            $baseRemainingBalance,
                         );
+                    } else {
+                        $plan->update([
+                            'status' => $impact['status'],
+                            'remaining_balance' => $impact['remaining_balance'],
+                            'interest_paid' => $impact['interest_paid'],
+                            'principal_paid' => $impact['principal_paid'],
+                            'quota_debt' => $impact['quota_debt'],
+                            'extra_payment' => $excedente,
+                        ]);
                     }
 
                     if ($impact['status'] === AmortizationStatus::OVERDUE) {

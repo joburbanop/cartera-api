@@ -9,8 +9,13 @@ use Carbon\Carbon;
 
 class AmortizationRecalculatorService
 {
-    public function applyExcess(Contract $contract, AmortizationPlan $currentPlan, string $excedente, ?string $paymentOption = null): void
-    {
+    public function applyExcess(
+        Contract $contract,
+        AmortizationPlan $currentPlan,
+        string $excedente,
+        ?string $paymentOption = null,
+        ?string $baseRemainingBalance = null,
+    ): void {
         if (bccomp($excedente, '0.00', 2) <= 0 || blank($paymentOption)) {
             return;
         }
@@ -27,19 +32,23 @@ class AmortizationRecalculatorService
             return;
         }
 
-        $this->rebuildReducedTermPlan($contract, $currentPlan, $excedente);
+        $this->rebuildReducedTermPlan($contract, $currentPlan, $excedente, $baseRemainingBalance);
     }
 
-    protected function rebuildReducedTermPlan(Contract $contract, AmortizationPlan $currentPlan, string $excedente): void
-    {
+    protected function rebuildReducedTermPlan(
+        Contract $contract,
+        AmortizationPlan $currentPlan,
+        string $excedente,
+        ?string $baseRemainingBalance = null,
+    ): void {
         $baseVersion = max(1, (int) ($currentPlan->version ?? 1));
         $newVersion = $baseVersion + 1;
         $currentInstallmentNumber = (int) ($currentPlan->installment_number ?? 0);
 
-        $currentRemainingBalance = (string) ($currentPlan->remaining_balance ?? '0.00');
-        $currentPrincipalValue = (string) ($currentPlan->principal_value ?? '0.00');
-        $updatedCurrentBalance = bcsub($currentRemainingBalance, $currentPrincipalValue, 2);
-        $updatedCurrentBalance = bcsub($updatedCurrentBalance, $excedente, 2);
+        $sourceBalance = blank($baseRemainingBalance)
+            ? (string) ($currentPlan->remaining_balance ?? '0.00')
+            : (string) $baseRemainingBalance;
+        $updatedCurrentBalance = bcsub($sourceBalance, $excedente, 2);
         $updatedCurrentBalance = max('0.00', $updatedCurrentBalance);
 
         $historicRows = AmortizationPlan::where('contract_id', $contract->id)
@@ -59,6 +68,8 @@ class AmortizationRecalculatorService
             if ((int) $row->installment_number === $currentInstallmentNumber) {
                 $payload['extra_payment'] = $excedente;
                 $payload['remaining_balance'] = $updatedCurrentBalance;
+                $payload['status'] = AmortizationStatus::PAID->value;
+                $payload['quota_debt'] = '0.00';
             }
 
             $frozenRows[] = $payload;
@@ -101,7 +112,7 @@ class AmortizationRecalculatorService
                     'interest_paid' => '0.00',
                     'principal_paid' => '0.00',
                     'quota_debt' => $installmentTotal,
-                    'status' => AmortizationStatus::UNPAID,
+                    'status' => AmortizationStatus::UNPAID->value,
                     'is_active' => true,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -123,11 +134,15 @@ class AmortizationRecalculatorService
                 'interest_paid' => '0.00',
                 'principal_paid' => '0.00',
                 'quota_debt' => $fixedQuota,
-                'status' => AmortizationStatus::UNPAID,
+                'status' => AmortizationStatus::UNPAID->value,
                 'is_active' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
+
+            if (bccomp($runningBalance, '0.00', 2) <= 0) {
+                break;
+            }
 
             $nextInstallmentNumber++;
             $nextDueDate = $nextDueDate->copy()->addMonthsNoOverflow(1);

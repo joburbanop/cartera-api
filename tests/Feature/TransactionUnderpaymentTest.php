@@ -299,6 +299,155 @@ it('keeps underpayment pending while contract is in preventa without reducing th
         ->and($result['remaining_balance'])->toBe('200.00');
 });
 
+it('creates v2 by freezing v1 rows and recalculating future installments after an extraordinary payment', function () {
+    Schema::create('customers', function (Blueprint $table) {
+        $table->id();
+        $table->string('document_number')->unique();
+        $table->string('document_type')->default('CC');
+        $table->string('name');
+        $table->string('phone')->nullable();
+        $table->timestamps();
+        $table->softDeletes();
+    });
+
+    Schema::create('projects', function (Blueprint $table) {
+        $table->id();
+        $table->string('name')->unique();
+        $table->string('description')->nullable();
+        $table->string('location')->nullable();
+        $table->string('status')->default('active');
+        $table->timestamps();
+        $table->softDeletes();
+    });
+
+    Schema::create('lots', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('project_id');
+        $table->string('number');
+        $table->decimal('area_m2', 10, 2)->default(0);
+        $table->decimal('price_m2', 15, 2)->default(0);
+        $table->decimal('list_price', 15, 2)->default(0);
+        $table->string('status')->default('disponible');
+        $table->string('type')->default('residential');
+        $table->timestamps();
+        $table->softDeletes();
+    });
+
+    Schema::create('contracts', function (Blueprint $table) {
+        $table->id();
+        $table->string('contract_number')->unique();
+        $table->unsignedBigInteger('customer_id');
+        $table->unsignedBigInteger('lot_id');
+        $table->string('seller_name')->nullable();
+        $table->decimal('sale_price', 15, 2);
+        $table->decimal('down_payment_pactada', 15, 2);
+        $table->integer('term_months');
+        $table->decimal('interest_rate', 5, 2)->default(1.00);
+        $table->date('start_date');
+        $table->date('initial_payment_date');
+        $table->date('first_installment_date');
+        $table->date('regular_payment_start_date');
+        $table->integer('preventa_installments_count')->default(0);
+        $table->string('status')->default('activo');
+        $table->timestamps();
+        $table->softDeletes();
+    });
+
+    Schema::create('amortization_plans', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('contract_id');
+        $table->integer('version')->default(1);
+        $table->integer('installment_number');
+        $table->date('due_date');
+        $table->decimal('installment_value', 15, 2);
+        $table->decimal('principal_value', 15, 2);
+        $table->decimal('interest_value', 15, 2);
+        $table->decimal('extra_payment', 15, 2)->default(0);
+        $table->decimal('remaining_balance', 15, 2);
+        $table->decimal('interest_paid', 15, 2)->default(0);
+        $table->decimal('principal_paid', 15, 2)->default(0);
+        $table->decimal('quota_debt', 15, 2)->default(0);
+        $table->string('status')->default('sin_pagar');
+        $table->boolean('is_active')->default(true);
+        $table->timestamps();
+    });
+
+    $customer = \App\Models\Customer::query()->firstOrCreate(
+        ['document_number' => 'EXTRA-200'],
+        ['name' => 'Cliente v2', 'phone' => '3000000001', 'document_type' => 'CC']
+    );
+
+    $project = \App\Models\Project::query()->firstOrCreate(
+        ['name' => 'Proyecto v2'],
+        ['description' => 'Proyecto de prueba', 'location' => 'Prueba', 'status' => 'active']
+    );
+
+    $lot = \App\Models\Lot::query()->firstOrCreate(
+        ['project_id' => $project->id, 'number' => 'EXTRA-8'],
+        ['area_m2' => 150.00, 'price_m2' => 1000000.00, 'list_price' => 150000000.00, 'status' => 'disponible', 'type' => 'residential']
+    );
+
+    $contract = \App\Models\Contract::query()->create([
+        'contract_number' => 'CTR-EXTRA-200',
+        'customer_id' => $customer->id,
+        'lot_id' => $lot->id,
+        'seller_name' => 'Lina',
+        'sale_price' => 90000000.00,
+        'down_payment_pactada' => 0.00,
+        'term_months' => 24,
+        'interest_rate' => 1.00,
+        'start_date' => '2025-10-05',
+        'initial_payment_date' => '2025-10-05',
+        'first_installment_date' => '2025-11-05',
+        'regular_payment_start_date' => '2025-11-05',
+        'preventa_installments_count' => 0,
+        'status' => \App\Enums\ContractStatus::ACTIVO->value,
+    ]);
+
+    $historicalInitial = AmortizationPlan::query()->create([
+        'contract_id' => $contract->id,
+        'version' => 1,
+        'installment_number' => 0,
+        'due_date' => '2025-10-05',
+        'installment_value' => '0.00',
+        'principal_value' => '0.00',
+        'interest_value' => '0.00',
+        'extra_payment' => '0.00',
+        'remaining_balance' => '77585711.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '0.00',
+        'status' => AmortizationStatus::PAID->value,
+        'is_active' => true,
+    ]);
+
+    $current = AmortizationPlan::query()->create([
+        'contract_id' => $contract->id,
+        'version' => 1,
+        'installment_number' => 1,
+        'due_date' => '2025-11-05',
+        'installment_value' => '4114428.60',
+        'principal_value' => '3000000.00',
+        'interest_value' => '1114428.60',
+        'extra_payment' => '0.00',
+        'remaining_balance' => '77585711.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '4114428.60',
+        'status' => AmortizationStatus::UNPAID->value,
+        'is_active' => true,
+    ]);
+
+    app(\App\Services\Financial\AmortizationRecalculatorService::class)
+        ->applyExcess($contract, $current, '10000000.00', 'reducir_plazo');
+
+    expect(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 1)->where('is_active', false)->count())->toBeGreaterThan(0)
+        ->and(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 2)->exists())->toBeTrue()
+        ->and(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 2)->where('installment_number', 1)->first()->extra_payment)->toBe('10000000.00')
+        ->and(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 2)->where('installment_number', 1)->first()->remaining_balance)->toBe('67585711.00')
+        ->and(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 2)->where('installment_number', 2)->first()->remaining_balance)->toBe('64147139.51');
+});
+
 it('creates a reduced-term version after an extraordinary payment without altering the historic rows', function () {
     Schema::create('customers', function (Blueprint $table) {
         $table->id();
