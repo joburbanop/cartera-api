@@ -229,11 +229,11 @@ class RegularPaymentService
             $installmentValue = (string) ($plan->installment_value ?? '0.00');
             $interestValue = (string) ($plan->interest_value ?? '0.00');
             $regularPrincipal = bcsub($installmentValue, $interestValue, 2);
-            $updatedPrincipalValue = bcadd($regularPrincipal, $surplus, 2);
-            $adjustedBalance = round((float) $projectedBalance - (float) $surplus, 2);
+            $totalPrincipalPaid = bcadd($regularPrincipal, $surplus, 2);
+            $adjustedBalance = round((float) $projectedBalance - (float) $totalPrincipalPaid, 2);
 
             $plan->extra_payment = $surplus;
-            $plan->principal_value = $updatedPrincipalValue;
+            $plan->principal_value = $totalPrincipalPaid;
             $plan->status = 'paid';
             $plan->payment_date = $dto->transactionDate;
             $plan->remaining_balance = $adjustedBalance;

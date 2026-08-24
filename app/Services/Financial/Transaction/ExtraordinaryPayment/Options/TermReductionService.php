@@ -15,12 +15,13 @@ class TermReductionService
         }
 
         $projectedBalance = (float) ($installment->projected_balance ?? $installment->remaining_balance ?? 0);
-        $newBalance = round($projectedBalance - (float) $surplusAmount, 2);
         $regularPrincipal = round((float) ($installment->installment_value ?? 0) - (float) ($installment->interest_value ?? 0), 2);
+        $totalPrincipalPaid = round($regularPrincipal + (float) $surplusAmount, 2);
+        $newBalance = round($projectedBalance - $totalPrincipalPaid, 2);
 
         $installment->update([
             'extra_payment' => $surplusAmount,
-            'principal_value' => round($regularPrincipal + (float) $surplusAmount, 2),
+            'principal_value' => $totalPrincipalPaid,
             'remaining_balance' => $newBalance,
             'projected_balance' => $newBalance,
             'status' => 'paid',
@@ -69,7 +70,7 @@ class TermReductionService
                     'quota_debt' => $baseQuota,
                     'projected_balance' => round(max(0.0, $currentRemaining + $principal), 2),
                     'remaining_balance' => round(max(0.0, $currentRemaining), 2),
-                    'status' => $currentRemaining <= 0 ? 'paid' : 'pending',
+                    'status' => 'pending',
                 ];
 
                 $futureInstallment->update($updated);
