@@ -69,13 +69,13 @@ class Contract extends Model
         return $this->hasMany(Transaction::class);
     }
 
-    public function amortizationVersions(): HasMany
+    public function installments(): HasMany
     {
-        return $this->hasMany(AmortizationVersion::class);
+        return $this->hasMany(AmortizationInstallment::class)->orderBy('installment_number', 'asc');
     }
 
-    public function activeAmortizationVersion(): HasOne
+    public function amortizationInstallments(): HasMany
     {
-        return $this->hasOne(AmortizationVersion::class)->where('is_active', true);
+        return $this->installments();
     }
 }

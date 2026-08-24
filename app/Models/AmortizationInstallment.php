@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AmortizationInstallment extends Model
 {
     protected $fillable = [
-        'amortization_version_id',
+        'contract_id',
         'installment_number',
         'due_date',
         'receipt_number',
@@ -17,6 +17,8 @@ class AmortizationInstallment extends Model
         'extra_payment',
         'interest_value',
         'principal_value',
+        'interest_paid',
+        'principal_paid',
         'quota_debt',
         'remaining_balance',
         'projected_balance',
@@ -35,8 +37,8 @@ class AmortizationInstallment extends Model
         'projected_balance' => 'decimal:2',
     ];
 
-    public function version(): BelongsTo
+    public function contract(): BelongsTo
     {
-        return $this->belongsTo(AmortizationVersion::class, 'amortization_version_id');
+        return $this->belongsTo(Contract::class);
     }
-}
+} 

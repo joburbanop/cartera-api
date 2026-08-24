@@ -6,10 +6,12 @@ use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\TransactionType;
-use App\Models\AmortizationPlan;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Receipt;
 use App\Models\Transaction;
+use App\Services\Financial\Amortization\AmortizationService;
+use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -17,28 +19,22 @@ class RegularPaymentService
 
 {
     public function calculatePaymentImpact(
-        AmortizationPlan $plan,
+        AmortizationInstallment $plan,
         string $paymentAmount,
         ?Contract $contract = null
     ): array {
-        $installmentValue = (string) $plan->installment_value;
+        $installmentValue = (string) ($plan->installment_value ?? '0.00');
 
-        $interestValue = (string) (
-            $plan->interest_value ?? '0.00'
-        );
+        $interestValue = (string) ($plan->interest_value ?? '0.00');
 
         $principalValue = (string) (
             $plan->principal_value
             ?? bcsub($installmentValue, $interestValue, 2)
         );
 
-        $interestAlreadyPaid = (string) (
-            $plan->interest_paid ?? '0.00'
-        );
+        $interestAlreadyPaid = (string) ($plan->interest_paid ?? '0.00');
 
-        $principalAlreadyPaid = (string) (
-            $plan->principal_paid ?? '0.00'
-        );
+        $principalAlreadyPaid = (string) ($plan->principal_paid ?? '0.00');
 
         $totalAlreadyPaid = bcadd(
             $interestAlreadyPaid,
@@ -46,9 +42,7 @@ class RegularPaymentService
             2
         );
 
-        $currentQuotaDebt = (string) (
-            $plan->quota_debt ?? '0.00'
-        );
+        $currentQuotaDebt = (string) ($plan->quota_debt ?? '0.00');
 
         $pendingDebt = bccomp($currentQuotaDebt, '0.00', 2) > 0
             ? $currentQuotaDebt
@@ -180,18 +174,22 @@ class RegularPaymentService
     return DB::transaction(function () use ($dto) {
 
         $contract = Contract::findOrFail($dto->contractId);
+        $planCollection = $contract->amortizationInstallments()->orderBy('installment_number', 'asc')->get();
 
-        $installmentNumber = $dto->installmentNumbers[0] ?? null;
+        if ($planCollection->isEmpty()) {
+            $planCollection = app(AmortizationService::class)->generateInitialProjection($contract);
+        }
 
-        if ($installmentNumber === null) {
+        $selectedInstallmentId = $dto->installmentNumbers[0] ?? null;
+
+        if ($selectedInstallmentId === null) {
             throw ValidationException::withMessages([
                 'installment_number' => 'Debe seleccionar una cuota.',
             ]);
         }
 
-        $plan = AmortizationPlan::where('contract_id', $contract->id)
-            ->where('installment_number', (int) $installmentNumber)
-            ->first();
+        $plan = $planCollection->first(fn ($installment) => (int) $installment->id === (int) $selectedInstallmentId)
+            ?? $planCollection->first(fn ($installment) => (int) $installment->installment_number === (int) $selectedInstallmentId);
 
         if (! $plan) {
             throw ValidationException::withMessages([
@@ -213,22 +211,90 @@ class RegularPaymentService
             'payment_method' => $dto->paymentMethod,
         ]);
 
-        $path = $dto->receipt->store('receipts', 'local');
+        if ($dto->receipt) {
+            $path = $dto->receipt->store('receipts', 'local');
 
-        Receipt::create([
-            'transaction_id' => $transaction->id,
-            'file_path' => $path,
-            'file_name' => $dto->receipt->getClientOriginalName(),
-            'file_type' => $dto->receipt->getClientMimeType(),
-        ]);
+            Receipt::create([
+                'transaction_id' => $transaction->id,
+                'file_path' => $path,
+                'file_name' => $dto->receipt->getClientOriginalName(),
+                'file_type' => $dto->receipt->getClientMimeType(),
+            ]);
+        }
+
+        $projectedBalance = (string) ($plan->projected_balance ?? $plan->remaining_balance ?? '0.00');
+        $surplus = (string) ($impact['excedente'] ?? '0.00');
+
+        if (bccomp($surplus, '0.00', 2) > 0) {
+            $installmentValue = (string) ($plan->installment_value ?? '0.00');
+            $interestValue = (string) ($plan->interest_value ?? '0.00');
+            $regularPrincipal = bcsub($installmentValue, $interestValue, 2);
+            $updatedPrincipalValue = bcadd($regularPrincipal, $surplus, 2);
+            $adjustedBalance = round((float) $projectedBalance - (float) $surplus, 2);
+
+            $plan->extra_payment = $surplus;
+            $plan->principal_value = $updatedPrincipalValue;
+            $plan->status = 'paid';
+            $plan->payment_date = $dto->transactionDate;
+            $plan->remaining_balance = $adjustedBalance;
+            $plan->projected_balance = $adjustedBalance;
+            $plan->save();
+
+            $plan->refresh();
+
+            $recalculationType = strtolower((string) ($dto->recalculationType ?? $dto->paymentOption ?? 'reducir_plazo'));
+
+            if ($recalculationType === 'reducir_plazo' || $recalculationType === 'reduce_term') {
+                app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
+                    ->recalculateFuture($contract, $plan->fresh());
+            } elseif ($recalculationType === 'reducir_cuota' || $recalculationType === 'reduce_quota') {
+                app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentReductionService::class)
+                    ->recalculateFuture($contract, $plan->fresh());
+            }
+
+            $option = strtolower((string) ($dto->paymentOption ?? ''));
+            if ($option !== '') {
+                $extraService = app(ExtraordinaryPaymentService::class);
+                $extraService->handle($contract, $plan->fresh(), $surplus, $option);
+            }
+
+            return $transaction;
+        }
+
+        if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) === 0) {
+            $plan->update([
+                'status' => 'paid',
+                'quota_debt' => '0.00',
+                'payment_date' => $dto->transactionDate,
+                'remaining_balance' => $projectedBalance,
+                'projected_balance' => $projectedBalance,
+            ]);
+
+            return $transaction;
+        }
+
+        if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) < 0) {
+            $plan->update([
+                'status' => 'partial',
+                'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $dto->amount, 2),
+                'payment_date' => $dto->transactionDate,
+                'remaining_balance' => $projectedBalance,
+                'projected_balance' => $projectedBalance,
+            ]);
+
+            return $transaction;
+        }
 
         $plan->update([
             'status' => $impact['status'],
             'quota_debt' => $impact['quota_debt'],
-            'interest_paid' => $impact['interest_paid'],
-            'principal_paid' => $impact['principal_paid'],
             'payment_date' => $dto->transactionDate,
-            'extra_payment' => $impact['excedente'],
+            'extra_payment' => $surplus,
+            'principal_value' => (string) ($plan->principal_value ?? bcsub((string) ($plan->installment_value ?? '0.00'), (string) ($plan->interest_value ?? '0.00'), 2)),
+            'principal_paid' => bcadd((string) ($plan->principal_paid ?? '0.00'), (string) ($impact['principal_paid'] ?? '0.00'), 2),
+            'interest_paid' => bcadd((string) ($plan->interest_paid ?? '0.00'), (string) ($impact['interest_paid'] ?? '0.00'), 2),
+            'remaining_balance' => $projectedBalance,
+            'projected_balance' => $projectedBalance,
         ]);
 
         return $transaction;

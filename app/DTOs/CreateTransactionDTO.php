@@ -18,25 +18,36 @@ class CreateTransactionDTO
         public readonly TransactionType $transactionType,
         public readonly array $installmentNumbers,
         public readonly ?string $paymentOption,
-        public readonly UploadedFile $receipt,
+        public readonly ?string $recalculationType,
+        public readonly ?UploadedFile $receipt,
     ) {}
 
     public static function fromRequest(
         StoreTransactionRequest $request,
         int $contractId
     ): self {
+        $selectedInstallments = $request->input('selected_installments', $request->input('installment_numbers', []));
+        $transactionDateValue = $request->input('transaction_date', $request->input('payment_date', now()->toDateString()));
+        $transactionTypeValue = $request->input('transaction_type', $request->input('transactionType', TransactionType::DOWN_PAYMENT->value));
+
+        if ($transactionTypeValue === null || $transactionTypeValue === '') {
+            $transactionTypeValue = $selectedInstallments ? TransactionType::REGULAR_PAYMENT->value : TransactionType::DOWN_PAYMENT->value;
+        }
+
+        $paymentOption = $request->validated('payment_option', $request->validated('surplus_action', null));
+        $recalculationType = $request->validated('recalculation_type', $paymentOption);
+
         return new self(
             contractId: $contractId,
-            amount: $request->validated('amount'),
-            transactionDate: Carbon::parse($request->validated('transaction_date')),
+            amount: (string) $request->validated('amount'),
+            transactionDate: Carbon::parse($transactionDateValue),
             paymentMethod: PaymentMethod::from(
                 $request->validated('payment_method')
             ),
-            transactionType: TransactionType::from(
-                $request->validated('transaction_type', TransactionType::DOWN_PAYMENT->value)
-            ),
-            installmentNumbers: array_values(array_map('intval', $request->validated('installment_numbers', []))),
-            paymentOption: $request->validated('payment_option', $request->validated('surplus_action', null)),
+            transactionType: TransactionType::from($transactionTypeValue),
+            installmentNumbers: array_values(array_map('intval', (array) $selectedInstallments)),
+            paymentOption: $paymentOption,
+            recalculationType: $recalculationType,
             receipt: $request->file('receipt'),
         );
     }

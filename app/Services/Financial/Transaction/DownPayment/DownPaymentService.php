@@ -7,11 +7,12 @@ use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\LotStatus;
 use App\Enums\TransactionType;
-use App\Models\AmortizationPlan;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Lot;
 use App\Models\Receipt;
 use App\Models\Transaction;
+use App\Services\Financial\Amortization\AmortizationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -56,14 +57,16 @@ class DownPaymentService
                 'payment_method' => $dto->paymentMethod,
             ]);
 
-            $path = $dto->receipt->store('receipts', 'local');
+            if ($dto->receipt) {
+                $path = $dto->receipt->store('receipts', 'local');
 
-            Receipt::create([
-                'transaction_id' => $transaction->id,
-                'file_path' => $path,
-                'file_name' => $dto->receipt->getClientOriginalName(),
-                'file_type' => $dto->receipt->getClientMimeType(),
-            ]);
+                Receipt::create([
+                    'transaction_id' => $transaction->id,
+                    'file_path' => $path,
+                    'file_name' => $dto->receipt->getClientOriginalName(),
+                    'file_type' => $dto->receipt->getClientMimeType(),
+                ]);
+            }
 
             $this->updateInitialInstallment($contract, $dto);
             $this->activateContractWhenDownPaymentIsComplete($contract);
@@ -74,10 +77,13 @@ class DownPaymentService
 
     private function updateInitialInstallment(Contract $contract, CreateTransactionDTO $dto): void
     {
-        $initialInstallment = AmortizationPlan::query()
-            ->where('contract_id', $contract->id)
-            ->where('installment_number', 0)
-            ->first();
+        $installments = $contract->amortizationInstallments()->orderBy('installment_number', 'asc')->get();
+
+        if ($installments->isEmpty()) {
+            $installments = app(AmortizationService::class)->generateInitialProjection($contract);
+        }
+
+        $initialInstallment = $installments->first(fn ($installment) => (int) $installment->installment_number === 0);
 
         if (! $initialInstallment) {
             return;

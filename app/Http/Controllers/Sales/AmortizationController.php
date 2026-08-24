@@ -21,51 +21,42 @@ class AmortizationController extends Controller
 
     public function generate(Contract $contract): JsonResponse
     {
-        $paymentPlan = $this->amortizationService->generateVersionOne($contract);
+        $plan = $this->amortizationService->generateInitialProjection($contract);
 
         return $this->successResponse(
-            $paymentPlan,
-            'Tabla de amortización (Versión 1) generada y guardada bajo llave exitosamente.',
+            $plan,
+            'Tabla de amortización generada exitosamente.',
             201
         );
     }
 
     public function show(Contract $contract, Request $request): JsonResponse
     {
-        $version = $request->query('version');
-        $plan = $this->amortizationService->getPlanByContract($contract, $version !== null ? (int) $version : null);
+        try {
+            $plan = $contract->installments()->get();
 
-        if ($plan->isEmpty()) {
-            $generatedPlan = $this->amortizationService->generateVersionOne($contract);
+            if ($plan->isEmpty()) {
+                $plan = $this->amortizationService->generateInitialProjection($contract);
+            }
 
-            return $this->successResponse(
-                $generatedPlan,
-                'Plan de amortización generado automáticamente al ingresar al contrato.',
-                200
-            );
+            return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
+        } catch (\Exception $e) {
+            \Log::error('Error consultando amortización para contrato ' . $contract->id . ': ' . $e->getMessage());
+
+            return response()->json([
+                'error' => 'Falla interna al consultar el plan de amortización.',
+                'details' => $e->getMessage(),
+            ], 500);
         }
-
-        $versions = $this->amortizationService->getAvailableVersions($contract);
-        $activeVersion = $version !== null ? (int) $version : (count($versions) > 0 ? (int) end($versions) : 1);
-
-        $payload = [
-            'version' => $activeVersion,
-            'versions' => $versions,
-            'rows' => $plan,
-        ];
-
-        return $this->successResponse($payload, 'Plan de amortización obtenido exitosamente.');
     }
 
     public function downloadPdf(Contract $contract, Request $request): Response
     {
-        $version = $request->query('version');
         $type = strtolower((string) $request->query('type', 'internal'));
-        $selectedVersion = $version !== null ? (int) $version : max($this->amortizationService->getAvailableVersions($contract));
-        $plan = $this->amortizationService->getPlanByContract($contract, $selectedVersion);
+        $plan = $contract->installments()->get();
 
         if ($plan->isEmpty()) {
-            $plan = $this->amortizationService->getPlanByContract($contract);
+            $plan = $this->amortizationService->generateInitialProjection($contract);
         }
 
         $customer = $contract->customer;
@@ -78,12 +69,12 @@ class AmortizationController extends Controller
             'lot' => $lot,
             'project' => $project,
             'plan' => $plan,
-            'version' => $selectedVersion,
+            'version' => null,
             'type' => $type,
         ]);
 
         $label = $type === 'client' ? 'cliente' : 'interno';
 
-        return $pdf->download(sprintf('extracto-amortizacion-%s-v%s.pdf', $label, $selectedVersion));
+        return $pdf->download(sprintf('extracto-amortizacion-%s-v1.pdf', $label));
     }
 }

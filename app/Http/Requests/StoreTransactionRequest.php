@@ -24,14 +24,19 @@ class StoreTransactionRequest extends FormRequest
     {
         return [
             'amount' => 'required|numeric|gt:0',
-            'transaction_date' => 'required|date',
+            'transaction_date' => 'nullable|date',
+            'payment_date' => 'nullable|date',
             'payment_method' => 'required|in:cash,bank,barter,transfer,card',
             'transaction_type' => 'sometimes|in:down_payment,regular_payment,extraordinary_payment,refund',
             'payment_option' => 'nullable|in:reducir_plazo,reducir_cuota,adelantar_cuotas,reduce_time,reduce_quota,transfer',
             'surplus_action' => 'nullable|in:reducir_plazo,reducir_cuota,adelantar_cuotas,reduce_time,reduce_quota,transfer',
+            'recalculation_type' => 'nullable|in:reducir_plazo,reducir_cuota,adelantar_cuotas,reduce_time,reduce_quota,transfer',
             'installment_numbers' => 'nullable|array',
-            'installment_numbers.*' => 'integer|min:0',
-            'receipt' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'installment_numbers.*' => 'integer|min:0|exists:amortization_installments,id',
+            'selected_installments' => 'required|array',
+            'selected_installments.*' => 'integer|exists:amortization_installments,id',
+            'receipt' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+            'receipt_number' => 'nullable|string|max:50',
         ];
     }
 }

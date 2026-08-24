@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('amortization_installments', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('amortization_version_id')->constrained('amortization_versions')->onDelete('cascade');
+            $table->foreignId('contract_id')->constrained('contracts')->onDelete('cascade');
             $table->integer('installment_number');
             $table->date('due_date');
             $table->string('receipt_number')->nullable();
@@ -19,6 +19,8 @@ return new class extends Migration
             $table->decimal('extra_payment', 15, 2)->default(0.00);
             $table->decimal('interest_value', 15, 2);
             $table->decimal('principal_value', 15, 2);
+            $table->decimal('interest_paid', 15, 2)->default(0.00);
+            $table->decimal('principal_paid', 15, 2)->default(0.00);
             $table->decimal('quota_debt', 15, 2)->default(0.00);
             $table->decimal('remaining_balance', 15, 2);
             $table->decimal('projected_balance', 15, 2);
