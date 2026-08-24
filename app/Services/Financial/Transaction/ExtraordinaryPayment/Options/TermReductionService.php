@@ -4,6 +4,7 @@ namespace App\Services\Financial\Transaction\ExtraordinaryPayment\Options;
 
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use Illuminate\Support\Facades\DB;
 
 class TermReductionService
 {
@@ -33,54 +34,59 @@ class TermReductionService
 
     public function recalculateFuture(Contract $contract, AmortizationInstallment $paidInstallment): void
     {
-        // Semilla correcta: arrancamos desde el saldo real residual de la cuota recién pagada.
-        $currentRemaining = max(0.0, (float) ($paidInstallment->remaining_balance ?? $paidInstallment->projected_balance ?? 0));
-        $currentNumber = (int) ($paidInstallment->installment_number ?? 0);
-        $rate = ((float) ($contract->interest_rate ?? 0)) / 100;
+        DB::transaction(function () use ($contract, $paidInstallment) {
+            $currentRemaining = max(0.0, (float) ($paidInstallment->remaining_balance ?? $paidInstallment->projected_balance ?? 0));
+            $currentNumber = (int) ($paidInstallment->installment_number ?? 0);
+            $rate = ((float) ($contract->interest_rate ?? 0)) / 100;
 
-        $futureInstallments = $contract->amortizationInstallments()
-            ->where('installment_number', '>', $currentNumber)
-            ->orderBy('installment_number', 'asc')
-            ->get();
+            $futureInstallments = $contract->amortizationInstallments()
+                ->where('installment_number', '>', $currentNumber)
+                ->orderBy('installment_number', 'asc')
+                ->get();
 
-        foreach ($futureInstallments as $futureInstallment) {
-            if ($currentRemaining <= 0) {
-                $futureInstallment->delete();
-                continue;
+            foreach ($futureInstallments as $futureInstallment) {
+                if ($currentRemaining <= 0) {
+                    $this->deleteRemainingFuture($contract, $futureInstallment->installment_number);
+                    break;
+                }
+
+                $interest = round($currentRemaining * $rate, 2);
+                $baseQuota = (float) ($futureInstallment->installment_value ?? 0);
+                $principal = round(max(0.0, $baseQuota - $interest), 2);
+
+                if ($currentRemaining < $principal) {
+                    $principal = round($currentRemaining, 2);
+                    $baseQuota = round($principal + $interest, 2);
+                    $currentRemaining = 0.0;
+                } else {
+                    $currentRemaining = round($currentRemaining - $principal, 2);
+                }
+
+                $updated = [
+                    'installment_value' => $baseQuota,
+                    'interest_value' => $interest,
+                    'principal_value' => $principal,
+                    'quota_debt' => $baseQuota,
+                    'projected_balance' => round(max(0.0, $currentRemaining + $principal), 2),
+                    'remaining_balance' => round(max(0.0, $currentRemaining), 2),
+                    'status' => $currentRemaining <= 0 ? 'paid' : 'pending',
+                ];
+
+                $futureInstallment->update($updated);
+
+                if ($currentRemaining <= 0) {
+                    $this->deleteRemainingFuture($contract, $futureInstallment->installment_number + 1);
+                    break;
+                }
             }
+        });
+    }
 
-            $interest = round($currentRemaining * $rate, 2);
-            $baseQuota = (float) ($futureInstallment->installment_value ?? 0);
-            $principal = round(max(0.0, $baseQuota - $interest), 2);
-
-            if ($currentRemaining < $principal) {
-                $principal = round($currentRemaining, 2);
-                $baseQuota = round($principal + $interest, 2);
-                $currentRemaining = 0.0;
-            } else {
-                $currentRemaining = round($currentRemaining - $principal, 2);
-            }
-
-            $updated = [
-                'installment_value' => $baseQuota,
-                'interest_value' => $interest,
-                'principal_value' => $principal,
-                'quota_debt' => $baseQuota,
-                'projected_balance' => round(max(0.0, $currentRemaining + $principal), 2),
-                'remaining_balance' => round(max(0.0, $currentRemaining), 2),
-                'status' => $currentRemaining <= 0 ? 'paid' : 'pending',
-            ];
-
-            $futureInstallment->update($updated);
-
-            if ($currentRemaining <= 0) {
-                $contract->amortizationInstallments()
-                    ->where('installment_number', '>', $currentNumber)
-                    ->where('remaining_balance', '<=', 0)
-                    ->delete();
-                break;
-            }
-        }
+    private function deleteRemainingFuture(Contract $contract, int $fromInstallmentNumber): void
+    {
+        $contract->amortizationInstallments()
+            ->where('installment_number', '>=', $fromInstallmentNumber)
+            ->delete();
     }
 
     protected function alreadyApplied(AmortizationInstallment $installment, string $surplusAmount): bool
