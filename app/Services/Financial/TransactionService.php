@@ -172,6 +172,7 @@ class TransactionService
                     $cuotaInicialPlan->update([
                         'quota_debt' => $nuevaDeudaInicial,
                         'remaining_balance' => (string) ($cuotaInicialPlan->remaining_balance ?? ($contract->sale_price - $contract->down_payment_pactada)),
+                        'payment_date' => $dto->transactionDate->toDateString(),
                         'status' => bccomp($nuevaDeudaInicial, '0.00', 2) === 0
                             ? AmortizationStatus::PAID
                             : AmortizationStatus::PARTIAL,
@@ -248,6 +249,7 @@ class TransactionService
                             'principal_paid' => $impact['principal_paid'],
                             'quota_debt' => $impact['quota_debt'],
                             'extra_payment' => $excedente,
+                            'payment_date' => $dto->transactionDate->toDateString(),
                         ]);
                     }
 

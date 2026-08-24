@@ -13,6 +13,7 @@ class AmortizationPlan extends Model
         'version',
         'installment_number',
         'due_date',
+        'payment_date',
         'installment_value',
         'principal_value',
         'interest_value',
@@ -30,6 +31,7 @@ class AmortizationPlan extends Model
     {
         return [
             'due_date' => 'date',
+            'payment_date' => 'date',
             'installment_value' => 'decimal:2',
             'principal_value' => 'decimal:2',
             'interest_value' => 'decimal:2',
