@@ -4,7 +4,7 @@ use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Models\AmortizationPlan;
 use App\Models\Contract;
-use App\Services\Financial\TransactionService;
+use App\Services\Financial\Transaction\TransactionService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
@@ -438,7 +438,7 @@ it('creates v2 by freezing v1 rows and recalculating future installments after a
         'is_active' => true,
     ]);
 
-    app(\App\Services\Financial\AmortizationRecalculatorService::class)
+    app(\App\Services\Financial\Amortization\AmortizationRecalculatorService::class)
         ->applyExcess($contract, $current, '10000000.00', 'reducir_plazo');
 
     expect(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 1)->where('is_active', false)->count())->toBeGreaterThan(0)
@@ -729,7 +729,7 @@ it('creates a reduced-term version after an extraordinary payment without alteri
         'is_active' => true,
     ]);
 
-    $service = app(\App\Services\Financial\AmortizationRecalculatorService::class);
+    $service = app(\App\Services\Financial\Amortization\AmortizationRecalculatorService::class);
     $service->applyExcess($contract, $current, '5000000.00', 'reducir_plazo');
 
     expect(AmortizationPlan::query()->where('contract_id', $contract->id)->where('version', 1)->where('installment_number', 0)->value('remaining_balance'))->toBe('94676400.00')

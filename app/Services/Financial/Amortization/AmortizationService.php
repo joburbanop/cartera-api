@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Financial;
+namespace App\Services\Financial\Amortization;
 
 use App\Models\Contract;
 use App\Models\AmortizationPlan;

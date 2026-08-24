@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\DTOs\CreateTransactionDTO;
 use App\Http\Requests\StoreTransactionRequest;
-use App\Services\Financial\TransactionService;
+use App\Services\Financial\Transaction\TransactionService;
 use Illuminate\Http\JsonResponse;
 
 class TransactionController extends Controller
@@ -23,7 +23,7 @@ class TransactionController extends Controller
         );
 
         $transaction = $this->transactionService
-            ->registerDownPayment($dto);
+            ->register($dto);
 
         return response()->json([
             'message' => 'Abono de cuota inicial registrado correctamente.',

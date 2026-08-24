@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Sales;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contract;
-use App\Services\Financial\AmortizationService;
+use App\Services\Financial\Amortization\AmortizationService;
 use App\Traits\ApiResponse;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;

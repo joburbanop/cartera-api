@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\Financial;
+namespace App\Services\Financial\Amortization;
 
 use App\Enums\AmortizationStatus;
 use App\Models\AmortizationPlan;

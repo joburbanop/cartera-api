@@ -3,7 +3,7 @@
 use App\DTOs\CreateContractDTO;
 use App\Http\Requests\StoreContractRequest;
 use App\Models\Contract;
-use App\Services\Financial\AmortizationService;
+use App\Services\Financial\Amortization\AmortizationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
