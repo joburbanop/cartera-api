@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Enums\ContractStatus;
 
 
@@ -63,8 +64,18 @@ class Contract extends Model
         return $this->belongsTo(Project::class);
     }
 
-      public function transactions(): HasMany
+    public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);
+    }
+
+    public function amortizationVersions(): HasMany
+    {
+        return $this->hasMany(AmortizationVersion::class);
+    }
+
+    public function activeAmortizationVersion(): HasOne
+    {
+        return $this->hasOne(AmortizationVersion::class)->where('is_active', true);
     }
 }
