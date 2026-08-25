@@ -49,6 +49,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bank-accounts', [BankAccountController::class, 'index']);
 
     Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract']);
+    Route::get('/transactions', [TransactionController::class, 'index']);
+    Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract']);
     Route::post('/contracts/{contractId}/transactions', [TransactionController::class, 'store']);
     Route::post('/contracts/{contractId}/transactions/down-payment', [TransactionController::class, 'store']);
 
