@@ -514,6 +514,84 @@ it('uses the full principal amortized when applying a surplus payment to the ins
         ->and($updated->projected_balance)->toBe('64434825.33');
 });
 
+it('uses the previous installment balance in the term reduction path instead of the contract fallback', function () {
+    Schema::create('contracts', function (Blueprint $table) {
+        $table->id();
+        $table->string('contract_number')->unique();
+        $table->string('status')->default('activo');
+        $table->decimal('sale_price', 15, 2)->default(0);
+        $table->decimal('down_payment_pactada', 15, 2)->default(0);
+        $table->decimal('interest_rate', 5, 2)->default(1.00);
+        $table->timestamps();
+    });
+
+    Schema::create('amortization_installments', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('contract_id');
+        $table->integer('installment_number');
+        $table->date('due_date');
+        $table->string('status')->default('sin_pagar');
+        $table->decimal('installment_value', 15, 2)->default(0);
+        $table->decimal('extra_payment', 15, 2)->default(0);
+        $table->decimal('interest_value', 15, 2)->default(0);
+        $table->decimal('principal_value', 15, 2)->default(0);
+        $table->decimal('interest_paid', 15, 2)->default(0);
+        $table->decimal('principal_paid', 15, 2)->default(0);
+        $table->decimal('quota_debt', 15, 2)->default(0);
+        $table->decimal('remaining_balance', 15, 2)->default(0);
+        $table->decimal('projected_balance', 15, 2)->default(0);
+        $table->dateTime('payment_date')->nullable();
+        $table->timestamps();
+    });
+
+    $contract = Contract::query()->create([
+        'contract_number' => 'CT-TERM-SEED-001',
+        'status' => ContractStatus::ACTIVO->value,
+        'sale_price' => '87404400.00',
+        'down_payment_pactada' => '0.00',
+        'interest_rate' => '1.00',
+    ]);
+
+    $first = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 1,
+        'due_date' => '2025-11-05',
+        'installment_value' => '2301693.09',
+        'principal_value' => '1427649.09',
+        'interest_value' => '874044.00',
+        'extra_payment' => '10000000.00',
+        'remaining_balance' => '75976750.91',
+        'projected_balance' => '75976750.91',
+        'interest_paid' => '874044.00',
+        'principal_paid' => '1427649.09',
+        'quota_debt' => '0.00',
+        'status' => AmortizationStatus::PAID->value,
+    ]);
+
+    $second = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 2,
+        'due_date' => '2025-12-05',
+        'installment_value' => '2301693.09',
+        'principal_value' => '1541925.58',
+        'interest_value' => '759767.51',
+        'extra_payment' => '0.00',
+        'remaining_balance' => '75976750.91',
+        'projected_balance' => '75976750.91',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '2301693.09',
+        'status' => AmortizationStatus::UNPAID->value,
+    ]);
+
+    $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
+        ->apply($contract, $second, '10000000.00');
+
+    expect($updated->remaining_balance)->toBe('64434825.33')
+        ->and($updated->projected_balance)->toBe('64434825.33')
+        ->and($updated->principal_value)->toBe('11541925.58');
+});
+
 it('does not reduce the same surplus twice when the installment already reflects the extraordinary payment', function () {
     Schema::create('contracts', function (Blueprint $table) {
         $table->id();

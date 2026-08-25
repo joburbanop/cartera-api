@@ -225,15 +225,64 @@ class RegularPaymentService
         $projectedBalance = (string) ($plan->projected_balance ?? $plan->remaining_balance ?? '0.00');
         $surplus = (string) ($impact['excedente'] ?? '0.00');
 
+        \Log::info('RegularPaymentService::surplus-start', [
+            'contract_id' => $contract->id,
+            'installment_id' => $plan->id,
+            'installment_number' => $plan->installment_number,
+            'amount' => $dto->amount,
+            'surplus' => $surplus,
+            'projected_balance' => $projectedBalance,
+            'plan_interest' => $plan->interest_value ?? null,
+            'plan_installment_value' => $plan->installment_value ?? null,
+        ]);
+
         if (bccomp($surplus, '0.00', 2) > 0) {
+            $previousInstallment = $contract->amortizationInstallments()
+                ->where('installment_number', (int) ($plan->installment_number ?? 0) - 1)
+                ->first();
+
+            \Log::info('RegularPaymentService::previous-installment-check', [
+                'contract_id' => $contract->id,
+                'current_installment_number' => $plan->installment_number,
+                'previous_installment_found' => (bool) $previousInstallment,
+                'previous_installment_id' => $previousInstallment?->id,
+                'previous_installment_number' => $previousInstallment?->installment_number,
+                'previous_remaining_balance' => $previousInstallment?->remaining_balance ?? null,
+                'previous_projected_balance' => $previousInstallment?->projected_balance ?? null,
+            ]);
+
+            $startingBalance = $previousInstallment
+                ? (float) ($previousInstallment->remaining_balance ?? $previousInstallment->projected_balance ?? 0)
+                : (float) ($plan->projected_balance ?? $plan->remaining_balance ?? 0);
+
+            if ($startingBalance <= 0) {
+                $startingBalance = round((float) ($contract->sale_price ?? 0) - (float) ($contract->down_payment_pactada ?? 0), 2);
+            }
+
+            $interestValue = (float) ($plan->interest_value ?? 0);
+            if ($interestValue <= 0) {
+                $interestValue = round($startingBalance * ((float) ($contract->interest_rate ?? 0) / 100), 2);
+            }
+
             $installmentValue = (string) ($plan->installment_value ?? '0.00');
-            $interestValue = (string) ($plan->interest_value ?? '0.00');
-            $regularPrincipal = bcsub($installmentValue, $interestValue, 2);
-            $totalPrincipalPaid = bcadd($regularPrincipal, $surplus, 2);
-            $adjustedBalance = round((float) $projectedBalance - (float) $totalPrincipalPaid, 2);
+            $regularPrincipal = round((float) $installmentValue - $interestValue, 2);
+            $totalPrincipalPaid = round($regularPrincipal + (float) $surplus, 2);
+            $adjustedBalance = round($startingBalance - $totalPrincipalPaid, 2);
+
+            \Log::info('RegularPaymentService::surplus-calculation', [
+                'contract_id' => $contract->id,
+                'installment_number' => $plan->installment_number,
+                'starting_balance' => $startingBalance,
+                'interest_value' => $interestValue,
+                'regular_principal' => $regularPrincipal,
+                'surplus' => $surplus,
+                'total_principal_paid' => $totalPrincipalPaid,
+                'adjusted_balance' => $adjustedBalance,
+            ]);
 
             $plan->extra_payment = $surplus;
-            $plan->principal_value = $totalPrincipalPaid;
+            $plan->interest_value = $interestValue;
+            $plan->principal_value = (string) $totalPrincipalPaid;
             $plan->status = 'paid';
             $plan->payment_date = $dto->transactionDate;
             $plan->remaining_balance = $adjustedBalance;
