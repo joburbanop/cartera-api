@@ -31,14 +31,12 @@ class LotService
 
     public function getAllLots(?int $projectId = null, int $perPage = 15)
     {
-        // Iniciamos la consulta cargando el proyecto (Eager Loading)
         $query = Lot::with('project')->latest();
 
-        // Si el frontend nos envía un ID de proyecto, filtramos los lotes
         if ($projectId) {
             $query->where('project_id', $projectId);
         }
 
-        return $query->paginate($perPage);
+        return $query->get();
     }
 }
