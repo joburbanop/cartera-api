@@ -2,14 +2,17 @@
 
 namespace App\Services\Financial\Transaction\ExtraordinaryPayment\Options;
 
-use App\Enums\AmortizationStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
-use Carbon\Carbon;
+use App\Services\Financial\Amortization\AmortizationCalculationService;
 use Illuminate\Support\Facades\DB;
 
 class PaymentReductionService extends AbstractExtraordinaryPaymentService
 {
+    public function __construct(
+        private readonly AmortizationCalculationService $amortizationCalculationService,
+    ) {}
+
     public function apply(
         Contract $contract,
         AmortizationInstallment $installment,
@@ -41,21 +44,12 @@ class PaymentReductionService extends AbstractExtraordinaryPaymentService
 
             $currentNumber = (int) $paidInstallment->installment_number;
 
-            $balance = round(
-                (float) (
-                    $paidInstallment->remaining_balance
-                    ?? $paidInstallment->projected_balance
-                    ?? 0
-                ),
-                2
+            $balance = (string) (
+                $paidInstallment->remaining_balance
+                ?? $paidInstallment->projected_balance
+                ?? '0.00'
             );
 
-            $rate = ((float) $contract->interest_rate) / 100;
-
-            /*
-             * Todas las cuotas posteriores a la cuota pagada
-             * se mantienen. Solamente cambiamos sus valores.
-             */
             $futureInstallments = $contract
                 ->amortizationInstallments()
                 ->where('installment_number', '>', $currentNumber)
@@ -64,74 +58,72 @@ class PaymentReductionService extends AbstractExtraordinaryPaymentService
 
             $remainingInstallments = $futureInstallments->count();
 
-            if ($balance <= 0 || $remainingInstallments === 0) {
+            if (
+                bccomp($balance, '0.00', 2) <= 0
+                || $remainingInstallments === 0
+            ) {
                 return;
             }
 
             /*
-             * Fórmula de amortización francesa:
-             *
-             * cuota = P * [r(1+r)^n] / [(1+r)^n - 1]
+             * Calculamos la nueva cuota fija utilizando
+             * el servicio central de cálculos financieros.
              */
-            if ($rate > 0) {
-                $factor = pow(1 + $rate, $remainingInstallments);
-
-                $newInstallmentValue = round(
-                    $balance
-                    * (
-                        ($rate * $factor)
-                        / ($factor - 1)
-                    ),
-                    2
+            $newInstallmentValue = $this->amortizationCalculationService
+                ->calculateFixedQuota(
+                    $balance,
+                    (string) $contract->interest_rate,
+                    $remainingInstallments
                 );
-            } else {
-                $newInstallmentValue = round(
-                    $balance / $remainingInstallments,
-                    2
-                );
-            }
 
             foreach ($futureInstallments as $index => $futureInstallment) {
 
-                $interest = round(
-                    $balance * $rate,
-                    2
-                );
+                /*
+                 * Interés de la cuota actual.
+                 */
+                $interest = $this->amortizationCalculationService
+                    ->calculateInterest(
+                        $balance,
+                        (string) $contract->interest_rate
+                    );
 
                 /*
                  * La última cuota se ajusta para cerrar
                  * exactamente el saldo pendiente.
                  */
                 if ($index === $remainingInstallments - 1) {
-                    $installmentValue = round(
-                        $balance + $interest,
-                        2
-                    );
 
-                    $principal = round(
+                    $installmentValue = bcadd(
                         $balance,
+                        $interest,
                         2
                     );
 
-                    $newBalance = 0.00;
+                    $principal = $balance;
+
+                    $newBalance = '0.00';
+
                 } else {
+
                     $installmentValue = $newInstallmentValue;
 
-                    $principal = round(
-                        max(
-                            0,
-                            $installmentValue - $interest
-                        ),
-                        2
-                    );
+                    /*
+                     * Capital = cuota - interés.
+                     */
+                    $principal = $this->amortizationCalculationService
+                        ->calculatePrincipal(
+                            $installmentValue,
+                            $interest
+                        );
 
-                    $newBalance = round(
-                        max(
-                            0,
-                            $balance - $principal
-                        ),
-                        2
-                    );
+                    /*
+                     * Nuevo saldo = saldo anterior - capital.
+                     */
+                    $newBalance = $this->amortizationCalculationService
+                        ->calculateRemainingBalance(
+                            $balance,
+                            $principal
+                        );
                 }
 
                 $futureInstallment->update([
@@ -142,12 +134,11 @@ class PaymentReductionService extends AbstractExtraordinaryPaymentService
                     'remaining_balance' => $newBalance,
                     'projected_balance' => $newBalance,
                     'extra_payment' => '0.00',
-                    
                 ]);
 
                 $balance = $newBalance;
 
-                if ($balance <= 0) {
+                if (bccomp($balance, '0.00', 2) <= 0) {
                     break;
                 }
             }
