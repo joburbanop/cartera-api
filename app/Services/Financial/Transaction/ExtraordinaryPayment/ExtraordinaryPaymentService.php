@@ -43,6 +43,11 @@ class ExtraordinaryPaymentService
         $surplusAmount = (string) $dto->amount;
         $option = strtolower((string) ($dto->paymentOption ?? ''));
 
+        \Log::info('ExtraordinaryPaymentService - opción recibida', [
+        'payment_option' => $dto->paymentOption,
+        'option_normalized' => $option,
+        ]);
+
         return DB::transaction(function () use ($contract, $installment, $surplusAmount, $option, $dto) {
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
@@ -61,6 +66,11 @@ class ExtraordinaryPaymentService
     public function handle(Contract $contract, AmortizationInstallment $installment, string $surplusAmount, string $option): AmortizationInstallment
     {
         $strategy = $this->resolveStrategy(strtolower($option));
+
+          \Log::info('ExtraordinaryPaymentService - estrategia seleccionada', [
+        'option' => $option,
+        'strategy' => get_class($strategy),
+    ]);
 
         return $strategy->apply($contract, $installment, $surplusAmount);
     }

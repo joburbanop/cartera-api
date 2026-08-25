@@ -47,6 +47,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             ProjectSeeder::class,
             LotSeeder::class,
+             FinancialTestSeeder::class,
         ]);
     }
 }
