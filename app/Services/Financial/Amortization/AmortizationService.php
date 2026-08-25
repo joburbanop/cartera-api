@@ -14,6 +14,10 @@ use Carbon\Carbon;
 
 class AmortizationService
 {
+    public function __construct(
+        private readonly AmortizationCalculationService $amortizationCalculationService,
+    ) {}
+
     private function roundMoney(string $value): string
     {
         return number_format((float) $value, 2, '.', '');
@@ -113,54 +117,21 @@ class AmortizationService
         }
 
         return DB::transaction(function () use ($contract) {
-            $startDate = Carbon::parse($contract->start_date);
-            $principal = (float) $contract->sale_price - (float) $contract->down_payment_pactada;
-            $rate = (float) $contract->interest_rate / 100;
-            $months = (int) $contract->term_months;
-            $balance = $principal;
+            $schedule = $this->amortizationCalculationService->buildSchedule($contract);
 
-            $contract->amortizationInstallments()->create([
-                'installment_number' => 0,
-                'due_date' => $startDate->copy(),
-                'payment_date' => null,
-                'installment_value' => (float) $contract->down_payment_pactada,
-                'extra_payment' => 0,
-                'interest_value' => 0,
-                'principal_value' => (float) $contract->down_payment_pactada,
-                'quota_debt' => (float) $contract->down_payment_pactada,
-                'remaining_balance' => $principal,
-                'projected_balance' => $principal,
-                'status' => 'pending',
-            ]);
-
-            $fixedQuota = ($rate > 0)
-                ? ($principal * $rate * pow(1 + $rate, $months)) / (pow(1 + $rate, $months) - 1)
-                : ($principal / $months);
-
-            for ($i = 1; $i <= $months; $i++) {
-                $interest = $balance * $rate;
-                $principalPayment = $fixedQuota - $interest;
-
-                if ($i === $months) {
-                    $principalPayment = $balance;
-                    $fixedQuota = $principalPayment + $interest;
-                    $balance = 0;
-                } else {
-                    $balance = max(0, $balance - $principalPayment);
-                }
-
+            foreach ($schedule as $row) {
                 $contract->amortizationInstallments()->create([
-                    'installment_number' => $i,
-                    'due_date' => $this->getRegularInstallmentDueDate($contract, $i),
+                    'installment_number' => $row['installment_number'],
+                    'due_date' => $row['due_date'],
                     'payment_date' => null,
-                    'installment_value' => round($fixedQuota, 2),
-                    'extra_payment' => 0,
-                    'interest_value' => round($interest, 2),
-                    'principal_value' => round($principalPayment, 2),
-                    'quota_debt' => round($fixedQuota, 2),
-                    'remaining_balance' => round(max(0, $balance), 2),
-                    'projected_balance' => round(max(0, $balance), 2),
-                    'status' => 'pending',
+                    'installment_value' => $row['installment_value'],
+                    'extra_payment' => $row['extra_payment'],
+                    'interest_value' => $row['interest_value'],
+                    'principal_value' => $row['principal_value'],
+                    'quota_debt' => $row['quota_debt'],
+                    'remaining_balance' => $row['remaining_balance'],
+                    'projected_balance' => $row['projected_balance'],
+                    'status' => $row['status'],
                 ]);
             }
 
