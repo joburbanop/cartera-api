@@ -7,13 +7,28 @@ use App\Models\AmortizationPlan;
 use App\Models\AmortizationVersion;
 use App\Models\Contract;
 use App\Enums\AmortizationStatus;
+use App\Enums\AmortizationStatusEnum;
+use App\Support\Financial\LegacyState;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
 
+/**
+ * Servicio principal para gestión de amortizaciones.
+ * 
+ * @deprecated En proceso de refactorización hacia AmortizationCalculationService.
+ *             Los nuevos contratos deben usar exclusivamente el nuevo servicio.
+ */
 class AmortizationService
 {
+    private AmortizationCalculationService $calculationService;
+
+    public function __construct()
+    {
+        $this->calculationService = new AmortizationCalculationService();
+    }
+
     private function roundMoney(string $value): string
     {
         return number_format((float) $value, 2, '.', '');
@@ -113,55 +128,11 @@ class AmortizationService
         }
 
         return DB::transaction(function () use ($contract) {
-            $startDate = Carbon::parse($contract->start_date);
-            $principal = (float) $contract->sale_price - (float) $contract->down_payment_pactada;
-            $rate = (float) $contract->interest_rate / 100;
-            $months = (int) $contract->term_months;
-            $balance = $principal;
-
-            $contract->amortizationInstallments()->create([
-                'installment_number' => 0,
-                'due_date' => $startDate->copy(),
-                'payment_date' => null,
-                'installment_value' => (float) $contract->down_payment_pactada,
-                'extra_payment' => 0,
-                'interest_value' => 0,
-                'principal_value' => (float) $contract->down_payment_pactada,
-                'quota_debt' => (float) $contract->down_payment_pactada,
-                'remaining_balance' => $principal,
-                'projected_balance' => $principal,
-                'status' => 'pending',
-            ]);
-
-            $fixedQuota = ($rate > 0)
-                ? ($principal * $rate * pow(1 + $rate, $months)) / (pow(1 + $rate, $months) - 1)
-                : ($principal / $months);
-
-            for ($i = 1; $i <= $months; $i++) {
-                $interest = $balance * $rate;
-                $principalPayment = $fixedQuota - $interest;
-
-                if ($i === $months) {
-                    $principalPayment = $balance;
-                    $fixedQuota = $principalPayment + $interest;
-                    $balance = 0;
-                } else {
-                    $balance = max(0, $balance - $principalPayment);
-                }
-
-                $contract->amortizationInstallments()->create([
-                    'installment_number' => $i,
-                    'due_date' => $this->getRegularInstallmentDueDate($contract, $i),
-                    'payment_date' => null,
-                    'installment_value' => round($fixedQuota, 2),
-                    'extra_payment' => 0,
-                    'interest_value' => round($interest, 2),
-                    'principal_value' => round($principalPayment, 2),
-                    'quota_debt' => round($fixedQuota, 2),
-                    'remaining_balance' => round(max(0, $balance), 2),
-                    'projected_balance' => round(max(0, $balance), 2),
-                    'status' => 'pending',
-                ]);
+            // Usar el nuevo servicio de cálculo unificado
+            $schedule = $this->calculationService->buildSchedule($contract);
+            
+            foreach ($schedule as $installmentData) {
+                $contract->amortizationInstallments()->create($installmentData);
             }
 
             return $contract->amortizationInstallments()->orderBy('installment_number', 'asc')->get();
