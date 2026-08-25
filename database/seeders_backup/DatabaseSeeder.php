@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use App\Models\BankAccount;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -12,9 +11,12 @@ class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
+    /**
+     * Seed the application's database.
+     */
     public function run(): void
     {
-        $user = User::query()->firstOrCreate(
+        User::query()->firstOrCreate(
             ['email' => 'admin@admin.com'],
             [
                 'name' => 'Administrador',
@@ -32,21 +34,6 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        BankAccount::query()->firstOrCreate(
-            ['account_number' => '1234567890'],
-            [
-                'bank_name' => 'Bancolombia',
-                'account_type' => 'savings',
-                'is_active' => true,
-                'holder_name' => 'Constructora San Miguel',
-                'created_by' => $user->id,
-                'updated_by' => $user->id,
-            ]
-        );
-
-        $this->call([
-            ProjectSeeder::class,
-            LotSeeder::class,
-        ]);
+        // Solo se crean los usuarios base para autenticación.
     }
 }

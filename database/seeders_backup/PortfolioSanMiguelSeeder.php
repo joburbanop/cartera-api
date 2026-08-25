@@ -32,7 +32,21 @@ class PortfolioSanMiguelSeeder extends Seeder
         );
 
         $portfolio = [
-        
+            [
+                'document_number' => '94526871',
+                'name' => 'WILLIAM ERNESTO ROJAS CAICEDO',
+                'phone' => '3001112233',
+                'sale_price' => 105196000.00,
+                'down_payment_pactada' => 10519600.00,
+                'term_months' => 60,
+                'interest_rate' => 1.00,
+                'start_date' => '2025-10-05',
+                'initial_payment_date' => '2025-10-05',
+                'first_installment_date' => '2025-11-05',
+                'regular_payment_start_date' => '2025-11-05',
+                'contract_number' => 'SM-LOT-6',
+                'lot_number' => '6',
+            ],
             [
                 'document_number' => '31896445',
                 'name' => 'AURORA RODRIGUEZ VANEGAS',
