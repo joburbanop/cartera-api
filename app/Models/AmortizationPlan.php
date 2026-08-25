@@ -22,6 +22,8 @@ class AmortizationPlan extends Model
         'interest_paid',
         'principal_paid',
         'quota_debt',
+        'paid_amount',
+        'balance_due',
         'status',
         'is_active',
     ];
@@ -40,6 +42,8 @@ class AmortizationPlan extends Model
             'interest_paid' => 'decimal:2',
             'principal_paid' => 'decimal:2',
             'quota_debt' => 'decimal:2',
+            'paid_amount' => 'decimal:2',
+            'balance_due' => 'decimal:2',
             'status' => AmortizationStatus::class, // <-- Magia del Enum aquí
             'is_active' => 'boolean',
         ];
@@ -48,5 +52,12 @@ class AmortizationPlan extends Model
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
+    }
+
+    public function transactions()
+    {
+        return $this->belongsToMany(Transaction::class, 'amortization_plan_transaction')
+            ->withPivot('amount_applied')
+            ->withTimestamps();
     }
 }

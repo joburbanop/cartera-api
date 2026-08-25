@@ -9,6 +9,7 @@ use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Sales\ContractController;
 use App\Http\Controllers\Sales\AmortizationController;
+use App\Http\Controllers\Collection\CollectionController;
 use App\Http\Controllers\TransactionController;
 
 Route::get('/user', function (Request $request) {
@@ -59,4 +60,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);
     Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show']);
     Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf']);
+
+    Route::post('/collections/cascade', [CollectionController::class, 'store']);
 });

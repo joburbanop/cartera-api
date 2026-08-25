@@ -78,4 +78,9 @@ class Contract extends Model
     {
         return $this->installments();
     }
+
+    public function activeAmortizationVersion()
+    {
+        return $this->hasOne(AmortizationVersion::class)->where('is_active', true)->orderByDesc('version_number');
+    }
 }

@@ -17,9 +17,9 @@ class CreateTransactionDTO
         public readonly PaymentMethod $paymentMethod,
         public readonly TransactionType $transactionType,
         public readonly array $installmentNumbers,
-        public readonly ?string $paymentOption,
-        public readonly ?string $recalculationType,
-        public readonly ?UploadedFile $receipt,
+        public readonly ?string $paymentOption = null,
+        public readonly ?string $recalculationType = null,
+        public readonly ?UploadedFile $receipt = null,
     ) {}
 
     public static function fromRequest(

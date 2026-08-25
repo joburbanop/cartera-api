@@ -266,8 +266,10 @@ class RegularPaymentService
 
             $installmentValue = (string) ($plan->installment_value ?? '0.00');
             $regularPrincipal = round((float) $installmentValue - $interestValue, 2);
-            $totalPrincipalPaid = round($regularPrincipal + (float) $surplus, 2);
-            $adjustedBalance = round($startingBalance - $totalPrincipalPaid, 2);
+            $availableForExtraPayment = round(max(0.0, $startingBalance - $regularPrincipal), 2);
+            $effectiveSurplus = round(min((float) $surplus, $availableForExtraPayment), 2);
+            $totalPrincipalPaid = round($regularPrincipal + $effectiveSurplus, 2);
+            $adjustedBalance = round(max(0.0, $startingBalance - $totalPrincipalPaid), 2);
 
             \Log::info('RegularPaymentService::surplus-calculation', [
                 'contract_id' => $contract->id,
@@ -276,14 +278,15 @@ class RegularPaymentService
                 'interest_value' => $interestValue,
                 'regular_principal' => $regularPrincipal,
                 'surplus' => $surplus,
+                'effective_surplus' => $effectiveSurplus,
                 'total_principal_paid' => $totalPrincipalPaid,
                 'adjusted_balance' => $adjustedBalance,
             ]);
 
-            $plan->extra_payment = $surplus;
+            $plan->extra_payment = $effectiveSurplus;
             $plan->interest_value = $interestValue;
             $plan->principal_value = (string) $totalPrincipalPaid;
-            $plan->status = 'paid';
+            $plan->status = AmortizationStatus::PAID->value;
             $plan->payment_date = $dto->transactionDate;
             $plan->remaining_balance = $adjustedBalance;
             $plan->projected_balance = $adjustedBalance;
@@ -304,7 +307,7 @@ class RegularPaymentService
             $option = strtolower((string) ($dto->paymentOption ?? ''));
             if ($option !== '') {
                 $extraService = app(ExtraordinaryPaymentService::class);
-                $extraService->handle($contract, $plan->fresh(), $surplus, $option);
+                $extraService->handle($contract, $plan->fresh(), (string) $effectiveSurplus, $option);
             }
 
             return $transaction;
@@ -312,7 +315,7 @@ class RegularPaymentService
 
         if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) === 0) {
             $plan->update([
-                'status' => 'paid',
+                'status' => AmortizationStatus::PAID->value,
                 'quota_debt' => '0.00',
                 'payment_date' => $dto->transactionDate,
                 'remaining_balance' => $projectedBalance,
@@ -324,7 +327,7 @@ class RegularPaymentService
 
         if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) < 0) {
             $plan->update([
-                'status' => 'partial',
+                'status' => AmortizationStatus::PARTIAL->value,
                 'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $dto->amount, 2),
                 'payment_date' => $dto->transactionDate,
                 'remaining_balance' => $projectedBalance,

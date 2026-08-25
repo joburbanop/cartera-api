@@ -60,20 +60,18 @@ class ExtraordinaryPaymentService
 
     public function handle(Contract $contract, AmortizationInstallment $installment, string $surplusAmount, string $option): AmortizationInstallment
     {
-        $normalized = strtolower($option);
+        $strategy = $this->resolveStrategy(strtolower($option));
 
-        if ($normalized === 'reducir_plazo') {
-            return $this->termReductionService->apply($contract, $installment, $surplusAmount);
-        }
+        return $strategy->apply($contract, $installment, $surplusAmount);
+    }
 
-        if ($normalized === 'reducir_cuota') {
-            return $this->paymentReductionService->apply($contract, $installment, $surplusAmount);
-        }
-
-        if ($normalized === 'adelantar_cuotas') {
-            return $this->paymentAdvanceService->apply($contract, $installment, $surplusAmount);
-        }
-
-        return $this->termReductionService->apply($contract, $installment, $surplusAmount);
+    private function resolveStrategy(string $option): object
+    {
+        return match ($option) {
+            'reducir_plazo' => $this->termReductionService,
+            'reducir_cuota' => $this->paymentReductionService,
+            'adelantar_cuotas' => $this->paymentAdvanceService,
+            default => $this->termReductionService,
+        };
     }
 }

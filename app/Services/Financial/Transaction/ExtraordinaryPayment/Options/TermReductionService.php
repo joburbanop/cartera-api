@@ -2,11 +2,14 @@
 
 namespace App\Services\Financial\Transaction\ExtraordinaryPayment\Options;
 
+use App\Enums\AmortizationStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
-class TermReductionService
+class TermReductionService extends AbstractExtraordinaryPaymentService
 {
     public function apply(Contract $contract, AmortizationInstallment $installment, string $surplusAmount): AmortizationInstallment
     {
@@ -14,34 +17,20 @@ class TermReductionService
             return $installment->fresh();
         }
 
-        $previousInstallment = $contract->amortizationInstallments()
-            ->where('installment_number', (int) ($installment->installment_number ?? 0) - 1)
-            ->first();
-
-        $startingBalance = $previousInstallment
-            ? (float) ($previousInstallment->remaining_balance ?? $previousInstallment->projected_balance ?? 0)
-            : (float) ($installment->projected_balance ?? $installment->remaining_balance ?? 0);
-
-        if ($startingBalance <= 0) {
-            $startingBalance = round((float) ($contract->sale_price ?? 0) - (float) ($contract->down_payment_pactada ?? 0), 2);
-        }
-
-        $interest = (float) ($installment->interest_value ?? 0);
-        if ($interest <= 0) {
-            $interest = round($startingBalance * ((float) ($contract->interest_rate ?? 0) / 100), 2);
-        }
-
-        $regularPrincipal = round((float) ($installment->installment_value ?? 0) - $interest, 2);
-        $totalPrincipalPaid = round($regularPrincipal + (float) $surplusAmount, 2);
-        $newBalance = round($startingBalance - $totalPrincipalPaid, 2);
+        $baseBalance = round((float) ($installment->remaining_balance ?? $installment->projected_balance ?? 0), 2);
+        $surplus = max('0.00', $this->normalizeMoney($surplusAmount));
+        $effectiveSurplus = min((float) $surplus, $baseBalance);
+        $newCapital = round(max(0.0, $baseBalance - $effectiveSurplus), 2);
+        $interestValue = round((float) ($installment->interest_value ?? 0), 2);
+        $installmentValue = round((float) ($installment->installment_value ?? 0), 2);
+        $principalValue = round(max(0.0, $installmentValue + $effectiveSurplus - $interestValue), 2);
 
         $installment->update([
-            'extra_payment' => $surplusAmount,
-            'interest_value' => $interest,
-            'principal_value' => $totalPrincipalPaid,
-            'remaining_balance' => $newBalance,
-            'projected_balance' => $newBalance,
-            'status' => 'paid',
+            'extra_payment' => $this->normalizeMoney((string) $effectiveSurplus),
+            'principal_value' => $principalValue,
+            'remaining_balance' => $newCapital,
+            'projected_balance' => $newCapital,
+            'status' => AmortizationStatus::PAID->value,
             'payment_date' => now(),
         ]);
 
@@ -58,47 +47,75 @@ class TermReductionService
     public function recalculateFuturePlan(Contract $contract, AmortizationInstallment $currentInstallment): void
     {
         DB::transaction(function () use ($contract, $currentInstallment) {
-            $saldoAcumulado = round((float) ($currentInstallment->remaining_balance ?? $currentInstallment->projected_balance ?? 0), 2);
             $currentNumber = (int) ($currentInstallment->installment_number ?? 0);
+            $balance = round((float) ($currentInstallment->remaining_balance ?? $currentInstallment->projected_balance ?? 0), 2);
+            $pmt = max(0.0, (float) ($currentInstallment->installment_value ?? 0));
             $rate = ((float) ($contract->interest_rate ?? 0)) / 100;
 
-            $futureInstallments = $contract->amortizationInstallments()
-                ->where('installment_number', '>', $currentNumber)
-                ->orderBy('installment_number', 'asc')
-                ->get();
+            $this->deleteRemainingFuture($contract, $currentNumber + 1);
 
-            foreach ($futureInstallments as $nextInstallment) {
-                if ($saldoAcumulado <= 0) {
-                    $this->deleteRemainingFuture($contract, $nextInstallment->installment_number);
-                    break;
-                }
+            if ($balance <= 0) {
+                return;
+            }
 
-                $nuevoInteres = round($saldoAcumulado * $rate, 2);
-                $valorCuota = (float) ($nextInstallment->installment_value ?? 0);
-                $nuevoCapital = round(max(0.0, $valorCuota - $nuevoInteres), 2);
+            $nextNumber = $currentNumber + 1;
+            $dueDate = $currentInstallment->due_date
+                ? Carbon::parse($currentInstallment->due_date)->addMonthNoOverflow(1)
+                : now();
+            $rows = [];
 
-                if ($saldoAcumulado < $nuevoCapital) {
-                    $nuevoCapital = round($saldoAcumulado, 2);
-                    $valorCuota = round($nuevoCapital + $nuevoInteres, 2);
-                    $saldoAcumulado = 0.0;
+            while ($balance > 0) {
+                $interest = round($balance * $rate, 2);
+                $installmentValue = $pmt > 0 ? $pmt : round($balance + $interest, 2);
+
+                if ($balance + $interest < $installmentValue) {
+                    $installmentValue = round($balance + $interest, 2);
+                    $amortization = round($balance, 2);
+                    $balance = 0.0;
                 } else {
-                    $saldoAcumulado = round($saldoAcumulado - $nuevoCapital, 2);
+                    $amortization = round(max(0.0, $installmentValue - $interest), 2);
+                    $balance = round(max(0.0, $balance - $amortization), 2);
                 }
 
-                $nextInstallment->update([
-                    'installment_value' => $valorCuota,
-                    'interest_value' => $nuevoInteres,
-                    'principal_value' => $nuevoCapital,
-                    'quota_debt' => $valorCuota,
-                    'projected_balance' => round(max(0.0, $saldoAcumulado + $nuevoCapital), 2),
-                    'remaining_balance' => round(max(0.0, $saldoAcumulado), 2),
-                    'status' => 'pending',
-                ]);
+                $row = [
+                    'contract_id' => $contract->id,
+                    'installment_number' => $nextNumber,
+                    'due_date' => $dueDate->copy()->format('Y-m-d'),
+                    'payment_date' => null,
+                    'installment_value' => round($installmentValue, 2),
+                    'extra_payment' => '0.00',
+                    'interest_value' => round($interest, 2),
+                    'principal_value' => round($amortization, 2),
+                    'interest_paid' => '0.00',
+                    'principal_paid' => '0.00',
+                    'quota_debt' => round($installmentValue, 2),
+                    'remaining_balance' => round(max(0.0, $balance), 2),
+                    'projected_balance' => round(max(0.0, $balance), 2),
+                    'status' => AmortizationStatus::UNPAID->value,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
 
-                if ($saldoAcumulado <= 0) {
-                    $this->deleteRemainingFuture($contract, $nextInstallment->installment_number + 1);
+                if (Schema::hasColumn('amortization_installments', 'receipt_number')) {
+                    $row['receipt_number'] = null;
+                }
+
+                if (Schema::hasColumn('amortization_installments', 'amortization_version_id')) {
+                    $row['amortization_version_id'] = $currentInstallment->amortization_version_id ?? null;
+                }
+
+                $rows[] = $row;
+
+                $nextNumber++;
+                $dueDate = $dueDate->copy()->addMonthNoOverflow(1);
+
+                if ($balance <= 0) {
                     break;
                 }
+            }
+
+            if ($rows !== []) {
+                $contract->amortizationInstallments()->insert($rows);
             }
         });
     }
@@ -110,10 +127,8 @@ class TermReductionService
             ->delete();
     }
 
-    protected function alreadyApplied(AmortizationInstallment $installment, string $surplusAmount): bool
+    private function normalizeMoney(string $value): string
     {
-        $storedExtra = (string) ($installment->extra_payment ?? '0.00');
-
-        return bccomp($storedExtra, $surplusAmount, 2) === 0;
+        return number_format((float) $value, 2, '.', '');
     }
 }

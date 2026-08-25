@@ -240,6 +240,84 @@ it('reduces the current row balance by the surplus when the payment exceeds the 
         ->and($result['excedente'])->toBe('5000000.00');
 });
 
+it('caps the surplus to the remaining balance so it never goes below zero', function () {
+    Schema::create('contracts', function (Blueprint $table) {
+        $table->id();
+        $table->string('contract_number')->unique();
+        $table->string('status')->default('activo');
+        $table->decimal('sale_price', 15, 2)->default(0);
+        $table->decimal('down_payment_pactada', 15, 2)->default(0);
+        $table->decimal('interest_rate', 5, 2)->default(1.00);
+        $table->timestamps();
+    });
+
+    Schema::create('amortization_installments', function (Blueprint $table) {
+        $table->id();
+        $table->unsignedBigInteger('contract_id');
+        $table->integer('installment_number');
+        $table->date('due_date');
+        $table->string('status')->default('sin_pagar');
+        $table->decimal('installment_value', 15, 2)->default(0);
+        $table->decimal('extra_payment', 15, 2)->default(0);
+        $table->decimal('interest_value', 15, 2)->default(0);
+        $table->decimal('principal_value', 15, 2)->default(0);
+        $table->decimal('interest_paid', 15, 2)->default(0);
+        $table->decimal('principal_paid', 15, 2)->default(0);
+        $table->decimal('quota_debt', 15, 2)->default(0);
+        $table->decimal('remaining_balance', 15, 2)->default(0);
+        $table->decimal('projected_balance', 15, 2)->default(0);
+        $table->dateTime('payment_date')->nullable();
+        $table->timestamps();
+    });
+
+    $contract = Contract::query()->create([
+        'contract_number' => 'CT-SURPLUS-LIMIT-001',
+        'status' => ContractStatus::ACTIVO->value,
+        'sale_price' => '87404400.00',
+        'down_payment_pactada' => '0.00',
+        'interest_rate' => '1.00',
+    ]);
+
+    $previous = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 4,
+        'due_date' => '2025-10-05',
+        'installment_value' => '2301693.09',
+        'principal_value' => '1773918.29',
+        'interest_value' => '527774.80',
+        'extra_payment' => '0.00',
+        'remaining_balance' => '41003562.20',
+        'projected_balance' => '41003562.20',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '2301693.09',
+        'status' => AmortizationStatus::UNPAID->value,
+    ]);
+
+    $current = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 5,
+        'due_date' => '2025-11-05',
+        'installment_value' => '2301693.09',
+        'principal_value' => '1891657.47',
+        'interest_value' => '410035.62',
+        'extra_payment' => '0.00',
+        'remaining_balance' => '41003562.20',
+        'projected_balance' => '41003562.20',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '2301693.09',
+        'status' => AmortizationStatus::UNPAID->value,
+    ]);
+
+    $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
+        ->apply($contract, $current, '44083317.59');
+
+    expect($updated->remaining_balance)->toBe('0.00')
+        ->and($updated->projected_balance)->toBe('0.00')
+        ->and($updated->extra_payment)->toBe('41003562.20');
+});
+
 it('closes the installment when the cumulative payments cover the full cuota value', function () {
     $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,
@@ -587,8 +665,8 @@ it('uses the previous installment balance in the term reduction path instead of 
     $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
         ->apply($contract, $second, '10000000.00');
 
-    expect($updated->remaining_balance)->toBe('64434825.33')
-        ->and($updated->projected_balance)->toBe('64434825.33')
+    expect($updated->remaining_balance)->toBe('65976750.91')
+        ->and($updated->projected_balance)->toBe('65976750.91')
         ->and($updated->principal_value)->toBe('11541925.58');
 });
 
@@ -715,6 +793,7 @@ it('does not subtract the scheduled principal twice when an exact payment settle
 
     Schema::create('amortization_installments', function (Blueprint $table) {
         $table->id();
+        $table->unsignedBigInteger('contract_id');
         $table->unsignedBigInteger('amortization_version_id');
         $table->integer('installment_number');
         $table->date('due_date');
@@ -783,6 +862,7 @@ it('does not subtract the scheduled principal twice when an exact payment settle
     ]);
 
     $installment = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
         'amortization_version_id' => $version->id,
         'installment_number' => 1,
         'due_date' => '2025-11-05',
@@ -887,6 +967,7 @@ it('stores the active amortization version and its installments in the relationa
 
     Schema::create('amortization_installments', function (Blueprint $table) {
         $table->id();
+        $table->unsignedBigInteger('contract_id');
         $table->unsignedBigInteger('amortization_version_id');
         $table->integer('installment_number');
         $table->date('due_date');
@@ -943,6 +1024,7 @@ it('stores the active amortization version and its installments in the relationa
     ]);
 
     $installment = \App\Models\AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
         'amortization_version_id' => $version->id,
         'installment_number' => 1,
         'due_date' => '2025-11-05',
@@ -954,13 +1036,13 @@ it('stores the active amortization version and its installments in the relationa
         'quota_debt' => '0.00',
         'remaining_balance' => '67000000.00',
         'projected_balance' => '67000000.00',
-        'status' => 'paid',
+        'status' => AmortizationStatus::PAID->value,
     ]);
 
     expect($contract->activeAmortizationVersion->id)->toBe($version->id)
         ->and($version->installments()->count())->toBe(1)
         ->and($installment->version->id)->toBe($version->id)
-        ->and($installment->status)->toBe('paid');
+        ->and($installment->status)->toBe(AmortizationStatus::PAID->value);
 });
 
 it('creates a reduced-term version after an extraordinary payment without altering the historic rows', function () {

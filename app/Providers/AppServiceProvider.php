@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\Collection\CascadeCollectionService;
+use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -10,7 +12,11 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(CascadeCollectionService::class, function ($app) {
+            return new CascadeCollectionService(
+                $app->make(ExtraordinaryPaymentService::class)
+            );
+        });
     }
 
     public function boot(): void
