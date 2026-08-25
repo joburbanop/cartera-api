@@ -24,6 +24,7 @@ class CollectionController extends Controller
         $result = $this->cascadeCollectionService->process(
             $dto->contractId,
             $dto->amount,
+            $dto->paymentOption,
         );
 
         return $this->successResponse(

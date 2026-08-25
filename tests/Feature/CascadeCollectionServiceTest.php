@@ -11,7 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-it('applies a global payment only to the current installment and sends the surplus to term reduction', function () {
+it('continues the cascade to the next installment when no payment option is provided and applies the surplus as advance of cuotas', function () {
     $project = Project::create([
         'name' => 'Proyecto Cascade',
         'description' => 'Proyecto de prueba',
@@ -102,14 +102,18 @@ it('applies a global payment only to the current installment and sends the surpl
     ]);
 
     $service = app(CascadeCollectionService::class);
-    $result = $service->process($contract->id, '1500.00');
+    $result = $service->process($contract->id, '1500.00', null);
+
+    $nextInstallment = $contract->amortizationInstallments()->where('installment_number', 2)->first();
 
     expect($result['amount_applied'])->toBe('1500.00')
         ->and($result['remaining_amount'])->toBe('0.00')
         ->and($current->fresh()->status)->toBe(AmortizationStatusEnum::PAID->value)
-        ->and($current->fresh()->extra_payment)->toBe('500.00')
-        ->and($current->fresh()->remaining_balance)->toBe('500.00')
-        ->and($current->fresh()->projected_balance)->toBe('500.00')
-        ->and($contract->amortizationInstallments()->where('installment_number', '>', 1)->count())->toBeGreaterThan(0)
-        ->and($contract->amortizationInstallments()->where('installment_number', '>', 1)->first()->status)->toBe(AmortizationStatusEnum::PENDING->value);
+        ->and($current->fresh()->quota_debt)->toBe('0.00')
+        ->and($current->fresh()->remaining_balance)->toBe('1000.00')
+        ->and($current->fresh()->projected_balance)->toBe('1000.00')
+        ->and($nextInstallment->fresh()->status)->toBe(AmortizationStatusEnum::PARTIAL->value)
+        ->and($nextInstallment->fresh()->quota_debt)->toBe('500.00')
+        ->and($nextInstallment->fresh()->remaining_balance)->toBe('1000.00')
+        ->and($nextInstallment->fresh()->projected_balance)->toBe('1000.00');
 });
