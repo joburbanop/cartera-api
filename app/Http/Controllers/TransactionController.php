@@ -4,14 +4,42 @@ namespace App\Http\Controllers;
 
 use App\DTOs\CreateTransactionDTO;
 use App\Http\Requests\StoreTransactionRequest;
+use App\Models\Transaction;
 use App\Services\Financial\Transaction\TransactionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Storage;
 
 class TransactionController extends Controller
 {
     public function __construct(
         private TransactionService $transactionService
     ) {}
+
+    public function indexByContract(int $contractId): JsonResponse
+    {
+        $transactions = Transaction::query()
+            ->where('contract_id', $contractId)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function (Transaction $transaction) {
+                $receiptPath = $transaction->receipt?->file_path;
+
+                return [
+                    'id' => $transaction->id,
+                    'contract_id' => $transaction->contract_id,
+                    'transaction_type' => $transaction->transaction_type,
+                    'amount' => $transaction->amount,
+                    'payment_method' => $transaction->payment_method,
+                    'transaction_date' => $transaction->transaction_date?->format('Y-m-d'),
+                    'created_at' => $transaction->created_at?->format('Y-m-d H:i:s'),
+                    'receipt' => $receiptPath ? Storage::disk('public')->url($receiptPath) : null,
+                ];
+            });
+
+        return response()->json([
+            'data' => $transactions,
+        ]);
+    }
 
     public function store(
         StoreTransactionRequest $request,
