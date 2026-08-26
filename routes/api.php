@@ -10,6 +10,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Sales\ContractController;
 use App\Http\Controllers\Sales\AmortizationController;
 use App\Http\Controllers\Collection\CollectionController;
+use App\Http\Controllers\ContractPaymentPromiseController;
 use App\Http\Controllers\TransactionController;
 
 Route::get('/user', function (Request $request) {
@@ -58,6 +59,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/contracts', [ContractController::class, 'store']);
     Route::get('/contracts', [ContractController::class, 'index']);
     Route::get('/contracts/{contract}', [ContractController::class, 'show']);
+    Route::get('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'index']);
+    Route::post('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'store']);
 
     // AMORTIZACIONES
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);

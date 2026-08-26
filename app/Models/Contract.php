@@ -84,4 +84,9 @@ class Contract extends Model
     {
         return $this->hasOne(AmortizationVersion::class)->where('is_active', true)->orderByDesc('version_number');
     }
+
+    public function paymentPromises(): HasMany
+    {
+        return $this->hasMany(ContractPaymentPromise::class)->orderBy('payment_number', 'asc');
+    }
 }
