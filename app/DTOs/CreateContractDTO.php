@@ -20,6 +20,8 @@ class CreateContractDTO
         public readonly string $firstInstallmentDate,
         public readonly string $regularPaymentStartDate,
         public readonly int $preventaInstallmentsCount,
+        public readonly bool $isCustomPlan = false,
+        public readonly ?array $promises = null,
         public readonly ?int $createdBy
     ) {}
 
@@ -45,6 +47,8 @@ class CreateContractDTO
             firstInstallmentDate: $firstInstallmentDate,
             regularPaymentStartDate: $regularPaymentStartDate,
             preventaInstallmentsCount: $request->validated('preventa_installments_count') ?? 0,
+            isCustomPlan: (bool) ($request->validated('is_custom_plan') ?? false),
+            promises: $request->validated('promises'),
             createdBy: auth()->id()
         );
     }

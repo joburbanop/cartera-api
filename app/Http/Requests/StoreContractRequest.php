@@ -39,6 +39,11 @@ class StoreContractRequest extends FormRequest
             'first_installment_date' => ['required', 'date', 'after_or_equal:start_date'],
             'regular_payment_start_date' => ['nullable', 'date', 'after_or_equal:first_installment_date'],
             'preventa_installments_count' => ['required', 'integer', 'min:0'],
+            'is_custom_plan' => 'boolean',
+            'promises' => 'nullable|array',
+            'promises.*.expected_date' => 'required_with:promises|date',
+            'promises.*.expected_amount' => 'required_with:promises|numeric|min:1',
+            'promises.*.description' => 'required_with:promises|string',
         ];
     }
 }

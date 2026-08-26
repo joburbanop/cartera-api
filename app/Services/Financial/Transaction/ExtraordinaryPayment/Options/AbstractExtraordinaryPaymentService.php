@@ -59,7 +59,7 @@ abstract class AbstractExtraordinaryPaymentService
             'remaining_balance' => $newBalance,
             'projected_balance' => $newBalance,
             'status' => AmortizationStatus::PAID->value,
-            'payment_date' => now(),
+            'payment_date' => $installment->payment_date ?? $contract->transactions()->latest()->first()?->transaction_date ?? $contract->transactions()->latest()->first()?->created_at ?? now(),
         ]);
 
         return $installment->fresh();

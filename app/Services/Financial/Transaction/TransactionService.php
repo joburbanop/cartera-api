@@ -95,6 +95,11 @@ class TransactionService
 
     public function register(CreateTransactionDTO $dto): Transaction
     {
+        \Log::info('FECHA RECIBIDA EN BACKEND (TransactionService::register): ', [
+            'date' => $dto->transactionDate->toDateString(),
+            'raw_iso' => $dto->transactionDate->toIso8601String(),
+        ]);
+
         return match ($dto->transactionType) {
 
             TransactionType::DOWN_PAYMENT =>

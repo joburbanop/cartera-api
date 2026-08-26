@@ -27,7 +27,8 @@ class CreateTransactionDTO
         int $contractId
     ): self {
         $selectedInstallments = $request->input('selected_installments', $request->input('installment_numbers', []));
-        $transactionDateValue = $request->input('transaction_date', $request->input('payment_date', now()->toDateString()));
+        $rawDate = $request->input('payment_date', $request->input('transaction_date'));
+        $transactionDate = self::parseInputDate($rawDate);
         $transactionTypeValue = $request->input('transaction_type', $request->input('transactionType', TransactionType::DOWN_PAYMENT->value));
 
         if ($transactionTypeValue === null || $transactionTypeValue === '') {
@@ -40,7 +41,7 @@ class CreateTransactionDTO
         return new self(
             contractId: $contractId,
             amount: (string) $request->validated('amount'),
-            transactionDate: Carbon::parse($transactionDateValue),
+            transactionDate: $transactionDate,
             paymentMethod: PaymentMethod::from(
                 $request->validated('payment_method')
             ),
@@ -50,5 +51,28 @@ class CreateTransactionDTO
             recalculationType: $recalculationType,
             receipt: $request->file('receipt'),
         );
+    }
+
+    private static function parseInputDate(mixed $rawDate): Carbon
+    {
+        if ($rawDate instanceof \DateTimeInterface) {
+            return Carbon::instance($rawDate);
+        }
+
+        if (is_string($rawDate)) {
+            $value = trim($rawDate);
+
+            if ($value === '') {
+                return Carbon::now();
+            }
+
+            if (str_contains($value, '/')) {
+                return Carbon::createFromFormat('d/m/Y', $value)->startOfDay();
+            }
+
+            return Carbon::parse($value)->startOfDay();
+        }
+
+        return Carbon::now();
     }
 }

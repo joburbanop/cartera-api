@@ -31,7 +31,7 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
             'remaining_balance' => $newCapital,
             'projected_balance' => $newCapital,
             'status' => AmortizationStatus::PAID->value,
-            'payment_date' => now(),
+            'payment_date' => $installment->payment_date ?? $contract->transactions()->latest()->first()?->transaction_date ?? $contract->transactions()->latest()->first()?->created_at ?? now(),
         ]);
 
         $this->recalculateFuture($contract, $installment->fresh());

@@ -2,15 +2,23 @@
 
 namespace App\Services\Sales;
 
+use App\DTOs\ContractPaymentPromiseDTO;
 use App\DTOs\CreateContractDTO;
 use App\Enums\LotStatus;
 use App\Models\Contract;
 use App\Models\Lot;
+use App\Services\ContractPaymentPromiseService;
+use App\Services\Financial\Amortization\AmortizationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ContractService
 {
+    public function __construct(
+        private readonly AmortizationService $amortizationService,
+        private readonly ContractPaymentPromiseService $contractPaymentPromiseService,
+    ) {}
+
     public function createContract(CreateContractDTO $dto): Contract
     {
         return DB::transaction(function () use ($dto) {
@@ -48,6 +56,21 @@ class ContractService
             $lot->update([
                 'status' => LotStatus::PREVENTA,
             ]);
+
+            $this->amortizationService->generateInitialProjection($contract);
+
+            if ($dto->isCustomPlan && ! empty($dto->promises)) {
+                $promiseDTOs = array_map(function ($promise, int $index) {
+                    return new ContractPaymentPromiseDTO(
+                        payment_number: (int) ($promise['payment_number'] ?? ($index + 1)),
+                        expected_date: (string) $promise['expected_date'],
+                        expected_amount: (float) $promise['expected_amount'],
+                        description: $promise['description'] ?? null,
+                    );
+                }, $dto->promises, array_keys($dto->promises));
+
+                $this->contractPaymentPromiseService->storeCommercialPlan($contract->id, $promiseDTOs);
+            }
 
             return $contract;
         });
