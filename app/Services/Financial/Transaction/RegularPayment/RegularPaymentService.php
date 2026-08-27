@@ -12,12 +12,39 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RegularPaymentService
 
 {
+    private function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
+    {
+        if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
+            return AmortizationStatus::PARTIAL;
+        }
+
+        $dueDate = $plan->due_date ?? null;
+
+        if (! $dueDate) {
+            return AmortizationStatus::OVERDUE;
+        }
+
+        return Carbon::parse($dueDate)->startOfDay()->lt(now()->startOfDay())
+            ? AmortizationStatus::OVERDUE
+            : AmortizationStatus::PARTIAL;
+    }
+
+    private function normalizeSurplus(string $surplus): string
+    {
+        if (bccomp($surplus, '0.00', 2) <= 0) {
+            return '0.00';
+        }
+
+        return bccomp($surplus, '2.00', 2) <= 0 ? '0.00' : $surplus;
+    }
+
     public function calculatePaymentImpact(
         AmortizationInstallment $plan,
         string $paymentAmount,
@@ -114,10 +141,17 @@ class RegularPaymentService
                 )
             );
 
-            $status = $contract
-                && $contract->status === ContractStatus::PREVENTA_INACTIVA
-                    ? AmortizationStatus::PARTIAL
-                    : AmortizationStatus::OVERDUE;
+            if (bccomp($updatedQuotaDebt, '500.00', 2) < 0) {
+                return [
+                    'status' => AmortizationStatus::PAID,
+                    'quota_debt' => '0.00',
+                    'interest_paid' => $interestValue,
+                    'principal_paid' => $principalValue,
+                    'excedente' => '0.00',
+                ];
+            }
+
+            $status = $this->resolvePartialStatus($plan, $contract);
 
             return [
                 'status' => $status,
@@ -148,11 +182,11 @@ class RegularPaymentService
          * La cuota queda pagada y el excedente
          * pasa al flujo de pago extraordinario.
          */
-        $surplus = bcsub(
+        $surplus = $this->normalizeSurplus(bcsub(
             $paymentAmount,
             $pendingDebt,
             2
-        );
+        ));
 
         return [
             'status' => AmortizationStatus::PAID,

@@ -172,6 +172,79 @@ it('keeps the initial payment balance unchanged while reducing only the initial 
         ->and($result['remaining_balance'])->toBe('94676400.00');
 });
 
+it('absorbs a residual below 500 as paid under the business tolerance rule', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '1000.00',
+        'interest_value' => '400.00',
+        'principal_value' => '600.00',
+        'remaining_balance' => '1000.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '1000.00',
+        'status' => AmortizationStatus::UNPAID->value,
+        'due_date' => now()->subDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment($plan, '950.00', $contract);
+
+    expect($result['status'])->toBe(AmortizationStatus::PAID)
+        ->and($result['quota_debt'])->toBe('0.00');
+});
+
+it('keeps a future-due partial payment as partial instead of overdue', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '2106024.23',
+        'interest_value' => '946764.00',
+        'principal_value' => '1159260.23',
+        'remaining_balance' => '94676400.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '2106024.23',
+        'status' => AmortizationStatus::UNPAID->value,
+        'due_date' => now()->addDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment($plan, '1500000.00', $contract);
+
+    expect($result['status'])->toBe(AmortizationStatus::PARTIAL)
+        ->and($result['quota_debt'])->toBe('606024.23');
+});
+
+it('absorbs tiny rounding surpluses without creating a fake extra payment', function () {
+    $contract = new Contract([
+        'status' => ContractStatus::ACTIVO->value,
+    ]);
+
+    $plan = new AmortizationPlan([
+        'installment_number' => 1,
+        'installment_value' => '100.00',
+        'interest_value' => '30.00',
+        'principal_value' => '70.00',
+        'remaining_balance' => '1000.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '100.00',
+        'status' => AmortizationStatus::UNPAID->value,
+        'due_date' => now()->subDay()->toDateString(),
+    ]);
+
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment($plan, '100.50', $contract);
+
+    expect($result['status'])->toBe(AmortizationStatus::PAID)
+        ->and($result['quota_debt'])->toBe('0.00')
+        ->and($result['excedente'])->toBe('0.00');
+});
+
 it('applies the LOTE 6 payment rules for partial, exact, and surplus payments', function () {
     $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,

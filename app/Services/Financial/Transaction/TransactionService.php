@@ -4,6 +4,7 @@ namespace App\Services\Financial\Transaction;
 
 use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
+use App\Enums\ContractStatus;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\AmortizationPlan;
@@ -12,6 +13,7 @@ use App\Models\Transaction;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\RegularPayment\RegularPaymentService;
+use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class TransactionService
@@ -21,6 +23,32 @@ class TransactionService
         private RegularPaymentService $regularPaymentService,
         private ExtraordinaryPaymentService $extraordinaryPaymentService,
     ) {}
+
+    private function resolvePartialStatus(AmortizationPlan|AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
+    {
+        if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
+            return AmortizationStatus::PARTIAL;
+        }
+
+        $dueDate = $plan->due_date ?? null;
+
+        if (! $dueDate) {
+            return AmortizationStatus::OVERDUE;
+        }
+
+        return Carbon::parse($dueDate)->startOfDay()->lt(now()->startOfDay())
+            ? AmortizationStatus::OVERDUE
+            : AmortizationStatus::PARTIAL;
+    }
+
+    private function normalizeSurplus(string $surplus): string
+    {
+        if (bccomp($surplus, '0.00', 2) <= 0) {
+            return '0.00';
+        }
+
+        return bccomp($surplus, '2.00', 2) <= 0 ? '0.00' : $surplus;
+    }
 
     public function calculatePaymentImpactForInstallment(
         AmortizationPlan|AmortizationInstallment $plan,
@@ -55,9 +83,19 @@ class TransactionService
             $newInterestPaid = bcadd($interestAlreadyPaid, $interestPaidNow, 2);
             $newPrincipalPaid = bcadd($principalAlreadyPaid, $principalPaidNow, 2);
             $updatedQuotaDebt = max('0.00', bcsub($pendingDebt, $paymentAmount, 2));
-            $status = ($contract && $contract->status === \App\Enums\ContractStatus::PREVENTA_INACTIVA)
-                ? AmortizationStatus::PARTIAL
-                : AmortizationStatus::OVERDUE;
+
+            if (bccomp($updatedQuotaDebt, '500.00', 2) < 0) {
+                return [
+                    'status' => AmortizationStatus::PAID,
+                    'quota_debt' => '0.00',
+                    'interest_paid' => $interestValue,
+                    'principal_paid' => $principalValue,
+                    'excedente' => '0.00',
+                    'remaining_balance' => $projectedBalance,
+                ];
+            }
+
+            $status = $this->resolvePartialStatus($plan, $contract);
 
             return [
                 'status' => $status,
@@ -80,7 +118,7 @@ class TransactionService
             ];
         }
 
-        $surplus = bcsub($paymentAmount, $pendingDebt, 2);
+        $surplus = $this->normalizeSurplus(bcsub($paymentAmount, $pendingDebt, 2));
         $newBalance = max('0.00', bcsub($projectedBalance, $surplus, 2));
 
         return [
