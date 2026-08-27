@@ -12,6 +12,59 @@ class StoreContractRequest extends FormRequest
         return true;
     }
 
+    public static function calculateExpectedFutureValue(float $salePrice, float $downPayment, float $interestRate, int $termMonths): float
+    {
+        $principal = max(0.0, $salePrice - $downPayment);
+
+        if ($principal <= 0 || $termMonths <= 0) {
+            return 0.0;
+        }
+
+        $i = ($interestRate / 100);
+
+        if ($i === 0.0) {
+            return round($principal, 2);
+        }
+
+        $pmt = $principal * (($i * pow(1 + $i, $termMonths)) / (pow(1 + $i, $termMonths) - 1));
+
+        return round($pmt * $termMonths, 2);
+    }
+
+    public static function calculateCustomPlanVariance(float $expectedFutureValue, float $totalCustom): float
+    {
+        return abs($totalCustom - $expectedFutureValue);
+    }
+
+    public function after(): array
+    {
+        return [
+            function ($validator) {
+                if (! $this->boolean('is_custom_plan')) {
+                    return;
+                }
+
+                $salePrice = (float) ($this->input('sale_price') ?? 0);
+                $downPayment = (float) ($this->input('down_payment_pactada') ?? 0);
+                $interestRate = (float) ($this->input('interest_rate') ?? 0);
+                $termMonths = (int) ($this->input('term_months') ?? 0);
+                $customPromises = $this->input('promises', []);
+
+                $totalCustom = 0.0;
+                foreach ($customPromises as $promise) {
+                    $totalCustom += (float) ($promise['expected_amount'] ?? 0);
+                }
+
+                $expectedFutureValue = self::calculateExpectedFutureValue($salePrice, $downPayment, $interestRate, $termMonths);
+                $variance = self::calculateCustomPlanVariance($expectedFutureValue, $totalCustom);
+
+                if ($expectedFutureValue > 0 && $variance > 5) {
+                    $validator->errors()->add('promises', 'La suma de cuotas personalizadas debe cuadrar con el valor futuro de la deuda (PMT × plazo), con un margen de +/- $5.');
+                }
+            },
+        ];
+    }
+
     public function rules(): array
     {
         return [

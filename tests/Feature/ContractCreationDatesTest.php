@@ -37,6 +37,10 @@ it('maps first installment date into the contract dto', function () {
         ->shouldReceive('validated')
         ->with('preventa_installments_count')->andReturn(3)
         ->shouldReceive('validated')
+        ->with('is_custom_plan')->andReturn(false)
+        ->shouldReceive('validated')
+        ->with('promises')->andReturn(null)
+        ->shouldReceive('validated')
         ->with('created_by')->andReturn(null);
 
     $dto = CreateContractDTO::fromRequest($request);
@@ -112,7 +116,7 @@ it('calculates regular installment due dates from the first installment date', f
         'first_installment_date' => '2026-10-15',
     ]);
 
-    $service = new AmortizationService();
+    $service = new AmortizationService(app(\App\Services\Financial\Amortization\AmortizationCalculationService::class));
 
     expect($service->getRegularInstallmentDueDate($contract, 1)->toDateString())->toBe('2026-10-15')
         ->and($service->getRegularInstallmentDueDate($contract, 2)->toDateString())->toBe('2026-11-15')
