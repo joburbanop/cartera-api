@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CRM;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCustomerRequest;
+use App\Http\Resources\CustomerResource;
 use App\DTOs\CreateCustomerDTO;
 use App\Services\CRM\CustomerService;
 use App\Traits\ApiResponse;
@@ -24,13 +25,20 @@ class CustomerController extends Controller
 
         $customer = $this->customerService->createCustomer($dto, $userId);
 
-        return $this->successResponse($customer, 'Cliente registrado exitosamente en el CRM.', 201);
+        return $this->successResponse(
+            new CustomerResource($customer),
+            'Cliente registrado exitosamente en el CRM.',
+            201
+        );
     }
 
     public function index(): JsonResponse
     {
         $customers = $this->customerService->getAllCustomers();
 
-        return $this->successResponse($customers, 'Lista de clientes obtenida exitosamente.');
+        return $this->successResponse(
+            CustomerResource::collection($customers->items()),
+            'Lista de clientes obtenida exitosamente.'
+        );
     }
 }

@@ -48,4 +48,15 @@ class Customer extends Model
     {
         return $this->belongsTo(User::class, 'deleted_by');
     }
+
+    // --- Relaciones de Negocio ---
+    public function contracts()
+    {
+        return $this->hasMany(Contract::class);
+    }
+
+    public function activeContract()
+    {
+        return $this->hasOne(Contract::class)->where('status', 'active')->latest();
+    }
 }

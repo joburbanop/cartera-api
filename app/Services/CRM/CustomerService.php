@@ -21,8 +21,24 @@ class CustomerService
         ]);
     }
 
-    public function getAllCustomers(int $perPage = 15)
+    public function getAllCustomers(int $perPage = 100)
     {
-        return Customer::latest()->paginate($perPage);
+        return Customer::with([
+            'activeContract' => function ($query) {
+                $query->with([
+                    'lot',
+                    'paymentPromises' => function ($q) {
+                        $q->where('is_paid', false)
+                          ->whereDate('expected_date', '<', now());
+                    },
+                    'installments' => function ($q) {
+                        $q->whereNotIn('status', ['paid', 'cancelled'])
+                          ->whereDate('due_date', '<', now());
+                    }
+                ]);
+            }
+        ])
+        ->latest()
+        ->paginate($perPage);
     }
 }
