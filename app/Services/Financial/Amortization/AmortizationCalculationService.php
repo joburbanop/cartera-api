@@ -128,7 +128,7 @@ class AmortizationCalculationService
                 'quota_debt' => $this->normalizeMoney($fixedQuota),
                 'remaining_balance' => $this->normalizeMoney($balance),
                 'projected_balance' => $this->normalizeMoney($balance),
-                'status' => bccomp($balance, '0.00', 2) === 0 ? 'paid' : 'pending',
+                'status' => 'pending',
             ];
         }
 

@@ -101,6 +101,7 @@ it('generates a valid amortization projection that settles the financed balance'
 
     expect($rows)->not->toBeEmpty()
         ->and($rows->last()->remaining_balance)->toBe('0.00')
+        ->and($rows->last()->status)->toBe('pending')
         ->and(bccomp($totalQuotaValue, $principalFinanced, 2))->toBeGreaterThanOrEqual(-1)
         ->and(bccomp($totalQuotaValue, $principalFinanced, 2))->toBeLessThanOrEqual(1);
 });
