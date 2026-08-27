@@ -24,18 +24,14 @@ class CustomerService
     public function getAllCustomers(int $perPage = 100)
     {
         return Customer::with([
-            'activeContract' => function ($query) {
-                $query->with([
-                    'lot',
-                    'paymentPromises' => function ($q) {
-                        $q->where('is_paid', false)
-                          ->whereDate('expected_date', '<', now());
-                    },
-                    'installments' => function ($q) {
-                        $q->whereNotIn('status', ['paid', 'cancelled'])
-                          ->whereDate('due_date', '<', now());
-                    }
-                ]);
+            'activeContract.lot',
+            'activeContract.paymentPromises' => function ($query) {
+                $query->where('is_paid', false)
+                      ->whereDate('expected_date', '<', now());
+            },
+            'activeContract.installments' => function ($query) {
+                $query->whereNotIn('status', ['paid', 'cancelled'])
+                      ->whereDate('due_date', '<', now());
             }
         ])
         ->latest()
