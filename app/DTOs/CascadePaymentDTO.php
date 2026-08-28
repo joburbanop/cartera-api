@@ -3,6 +3,7 @@
 namespace App\DTOs;
 
 use App\Http\Requests\StoreCascadePaymentRequest;
+use Carbon\Carbon;
 
 class CascadePaymentDTO
 {
@@ -10,14 +11,41 @@ class CascadePaymentDTO
         public readonly int $contractId,
         public readonly string $amount,
         public readonly ?string $paymentOption,
+        public readonly Carbon $transactionDate,
     ) {}
 
     public static function fromRequest(StoreCascadePaymentRequest $request): self
     {
+        $rawDate = $request->input('payment_date', $request->input('transaction_date'));
+
         return new self(
             contractId: (int) $request->validated('contract_id'),
             amount: (string) $request->validated('amount'),
             paymentOption: $request->input('payment_option'),
+            transactionDate: self::parseInputDate($rawDate),
         );
+    }
+
+    private static function parseInputDate(mixed $rawDate): Carbon
+    {
+        if ($rawDate instanceof \DateTimeInterface) {
+            return Carbon::instance($rawDate);
+        }
+
+        if (is_string($rawDate)) {
+            $value = trim($rawDate);
+
+            if ($value === '') {
+                return Carbon::now()->startOfDay();
+            }
+
+            if (str_contains($value, '/')) {
+                return Carbon::createFromFormat('d/m/Y', $value)->startOfDay();
+            }
+
+            return Carbon::parse($value)->startOfDay();
+        }
+
+        return Carbon::now()->startOfDay();
     }
 }

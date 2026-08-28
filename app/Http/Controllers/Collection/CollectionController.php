@@ -25,6 +25,7 @@ class CollectionController extends Controller
             $dto->contractId,
             $dto->amount,
             $dto->paymentOption,
+            $dto->transactionDate,
         );
 
         return $this->successResponse(

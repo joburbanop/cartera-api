@@ -9,6 +9,7 @@ use App\Models\AmortizationPlan;
 use App\Models\Contract;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Facades\DB;
 
@@ -18,21 +19,22 @@ class CascadeCollectionService
         private readonly ExtraordinaryPaymentService $extraordinaryPaymentService,
     ) {}
 
-    public function process(int $contractId, string $amount, ?string $paymentOption = null): array
+    public function process(int $contractId, string $amount, ?string $paymentOption = null, ?Carbon $transactionDate = null): array
     {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption) {
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate) {
             $contract = Contract::findOrFail($contractId);
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
             $appliedInstallments = [];
             $lastPaidInstallment = null;
             $normalizedPaymentOption = $this->normalizePaymentOption($paymentOption);
+            $effectiveTransactionDate = ($transactionDate ?? Carbon::now())->copy()->startOfDay();
 
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
                 'transaction_type' => TransactionType::REGULAR_PAYMENT,
                 'amount' => $availableAmount,
-                'transaction_date' => now()->toDateString(),
+                'transaction_date' => $effectiveTransactionDate->toDateString(),
                 'payment_method' => 'cash',
             ]);
 
@@ -77,7 +79,7 @@ class CascadeCollectionService
                 $installment->update([
                     'quota_debt' => $newBalanceDue,
                     'status' => $status,
-                    'payment_date' => now(),
+                    'payment_date' => $effectiveTransactionDate->toDateString(),
                 ]);
 
                 $lastPaidInstallment = $installment;
@@ -108,7 +110,7 @@ class CascadeCollectionService
                             if ($extraordinaryInstallment instanceof AmortizationInstallment) {
                                 $extraordinaryInstallment->refresh();
                                 $extraordinaryInstallment->update([
-                                    'payment_date' => now(),
+                                    'payment_date' => $effectiveTransactionDate->toDateString(),
                                     'status' => AmortizationStatusEnum::PAID->value,
                                 ]);
                             }
@@ -200,12 +202,12 @@ class CascadeCollectionService
             ->first();
     }
 
-    private function applyLegacyPlanSurplus(AmortizationPlan $installment, string $surplusAmount): void
+    private function applyLegacyPlanSurplus(AmortizationPlan $installment, string $surplusAmount, Carbon $transactionDate): void
     {
         $installment->update([
             'balance_due' => '0.00',
             'status' => AmortizationStatusEnum::PAID->value,
-            'payment_date' => now(),
+            'payment_date' => $transactionDate->toDateString(),
         ]);
     }
 
