@@ -19,6 +19,10 @@ class StoreCascadePaymentRequest extends FormRequest
             'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas'],
             'transaction_date' => ['nullable', 'date'],
             'payment_date' => ['nullable', 'date'],
+            'selected_installments' => ['nullable', 'array'],
+            'selected_installments.*' => ['integer', 'exists:amortization_installments,id'],
+            'installment_numbers' => ['nullable', 'array'],
+            'installment_numbers.*' => ['integer', 'exists:amortization_installments,id'],
         ];
     }
 }

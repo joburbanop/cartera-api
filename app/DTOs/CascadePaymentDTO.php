@@ -12,17 +12,20 @@ class CascadePaymentDTO
         public readonly string $amount,
         public readonly ?string $paymentOption,
         public readonly Carbon $transactionDate,
+        public readonly array $selectedInstallments,
     ) {}
 
     public static function fromRequest(StoreCascadePaymentRequest $request): self
     {
         $rawDate = $request->input('payment_date', $request->input('transaction_date'));
+        $selectedInstallments = $request->input('selected_installments', $request->input('installment_numbers', []));
 
         return new self(
             contractId: (int) $request->validated('contract_id'),
             amount: (string) $request->validated('amount'),
             paymentOption: $request->input('payment_option'),
             transactionDate: self::parseInputDate($rawDate),
+            selectedInstallments: array_values(array_map('intval', (array) $selectedInstallments)),
         );
     }
 
