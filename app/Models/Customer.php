@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ContractStatus;
 use App\Enums\DocumentType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -55,8 +56,26 @@ class Customer extends Model
         return $this->hasMany(Contract::class);
     }
 
+    public function activeContracts()
+    {
+        return $this->hasMany(Contract::class)
+            ->whereIn('status', [
+                ContractStatus::ACTIVO->value,
+                ContractStatus::PREVENTA_INACTIVA->value,
+                'active',
+                'preventa',
+            ]);
+    }
+
     public function activeContract()
     {
-        return $this->hasOne(Contract::class)->where('status', 'active')->latest();
+        return $this->hasOne(Contract::class)
+            ->whereIn('status', [
+                ContractStatus::ACTIVO->value,
+                ContractStatus::PREVENTA_INACTIVA->value,
+                'active',
+                'preventa',
+            ])
+            ->latest();
     }
 }
