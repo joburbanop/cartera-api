@@ -58,8 +58,8 @@ class StoreContractRequest extends FormRequest
                 $expectedFutureValue = self::calculateExpectedFutureValue($salePrice, $downPayment, $interestRate, $termMonths);
                 $variance = self::calculateCustomPlanVariance($expectedFutureValue, $totalCustom);
 
-                if ($expectedFutureValue > 0 && $variance > 5) {
-                    $validator->errors()->add('promises', 'La suma de cuotas personalizadas debe cuadrar con el valor futuro de la deuda (PMT × plazo), con un margen de +/- $5.');
+                if ($expectedFutureValue > 0 && $variance > 1000) {
+                    $validator->errors()->add('promises', 'La suma de cuotas personalizadas debe cuadrar con el valor futuro de la deuda (PMT × plazo), con un margen de +/- $1,000.');
                 }
             },
         ];
