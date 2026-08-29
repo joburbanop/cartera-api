@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Enums\ContractStatus;
 
 
@@ -78,11 +77,6 @@ class Contract extends Model
     public function amortizationInstallments(): HasMany
     {
         return $this->installments();
-    }
-
-    public function activeAmortizationVersion()
-    {
-        return $this->hasOne(AmortizationVersion::class)->where('is_active', true)->orderByDesc('version_number');
     }
 
     public function paymentPromises(): HasMany

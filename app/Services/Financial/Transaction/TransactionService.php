@@ -7,7 +7,6 @@ use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
-use App\Models\AmortizationPlan;
 use App\Models\Contract;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
@@ -24,7 +23,7 @@ class TransactionService
         private ExtraordinaryPaymentService $extraordinaryPaymentService,
     ) {}
 
-    private function resolvePartialStatus(AmortizationPlan|AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
+    private function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
     {
         if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
             return AmortizationStatus::PARTIAL;
@@ -51,7 +50,7 @@ class TransactionService
     }
 
     public function calculatePaymentImpactForInstallment(
-        AmortizationPlan|AmortizationInstallment $plan,
+        AmortizationInstallment $plan,
         string $paymentAmount,
         ?Contract $contract = null,
     ): array {

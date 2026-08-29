@@ -347,11 +347,18 @@ class RegularPaymentService
             return $transaction;
         }
 
+        // calculatePaymentImpact ya devuelve la imputación acumulada de la cuota,
+        // así que se asigna directamente en lugar de sumarla sobre lo persistido.
+        $interestPaid = (string) ($impact['interest_paid'] ?? '0.00');
+        $principalPaid = (string) ($impact['principal_paid'] ?? '0.00');
+
         if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) === 0) {
             $plan->update([
                 'status' => AmortizationStatus::PAID->value,
                 'quota_debt' => '0.00',
                 'payment_date' => $dto->transactionDate,
+                'interest_paid' => $interestPaid,
+                'principal_paid' => $principalPaid,
                 'remaining_balance' => $projectedBalance,
                 'projected_balance' => $projectedBalance,
             ]);
@@ -364,6 +371,8 @@ class RegularPaymentService
                 'status' => AmortizationStatus::PARTIAL->value,
                 'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $dto->amount, 2),
                 'payment_date' => $dto->transactionDate,
+                'interest_paid' => $interestPaid,
+                'principal_paid' => $principalPaid,
                 'remaining_balance' => $projectedBalance,
                 'projected_balance' => $projectedBalance,
             ]);
@@ -377,8 +386,8 @@ class RegularPaymentService
             'payment_date' => $dto->transactionDate,
             'extra_payment' => $surplus,
             'principal_value' => (string) ($plan->principal_value ?? bcsub((string) ($plan->installment_value ?? '0.00'), (string) ($plan->interest_value ?? '0.00'), 2)),
-            'principal_paid' => bcadd((string) ($plan->principal_paid ?? '0.00'), (string) ($impact['principal_paid'] ?? '0.00'), 2),
-            'interest_paid' => bcadd((string) ($plan->interest_paid ?? '0.00'), (string) ($impact['interest_paid'] ?? '0.00'), 2),
+            'interest_paid' => $interestPaid,
+            'principal_paid' => $principalPaid,
             'remaining_balance' => $projectedBalance,
             'projected_balance' => $projectedBalance,
         ]);

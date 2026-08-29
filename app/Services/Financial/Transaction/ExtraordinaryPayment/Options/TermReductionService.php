@@ -100,10 +100,6 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
                     $row['receipt_number'] = null;
                 }
 
-                if (Schema::hasColumn('amortization_installments', 'amortization_version_id')) {
-                    $row['amortization_version_id'] = $currentInstallment->amortization_version_id ?? null;
-                }
-
                 $rows[] = $row;
 
                 $nextNumber++;

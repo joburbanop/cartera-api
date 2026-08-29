@@ -4,8 +4,6 @@ namespace App\Services\Collection;
 
 use App\Enums\AmortizationStatusEnum;
 use App\Enums\TransactionType;
-use App\Models\AmortizationInstallment;
-use App\Models\AmortizationPlan;
 use App\Models\Contract;
 use App\Models\Receipt;
 use App\Models\Transaction;
@@ -129,7 +127,7 @@ class CascadeCollectionService
                     && bccomp($surplusAmount, '0.00', 2) > 0
                     && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota'], true)
                 ) {
-                    $extraordinaryInstallment = $this->resolveExtraordinaryInstallment($contract, $installment);
+                    $extraordinaryInstallment = $installment->fresh();
 
                     if ($extraordinaryInstallment) {
                         $this->extraordinaryPaymentService->handle(
@@ -139,13 +137,11 @@ class CascadeCollectionService
                             $normalizedPaymentOption,
                         );
 
-                        if ($extraordinaryInstallment instanceof AmortizationInstallment) {
-                            $extraordinaryInstallment->refresh();
-                            $extraordinaryInstallment->update([
-                                'payment_date' => $effectiveTransactionDate->toDateString(),
-                                'status' => AmortizationStatusEnum::PAID->value,
-                            ]);
-                        }
+                        $extraordinaryInstallment->refresh();
+                        $extraordinaryInstallment->update([
+                            'payment_date' => $effectiveTransactionDate->toDateString(),
+                            'status' => AmortizationStatusEnum::PAID->value,
+                        ]);
                     }
                 }
             }
@@ -181,27 +177,10 @@ class CascadeCollectionService
     {
         $selectedIds = array_values(array_unique(array_filter(array_map('intval', $selectedInstallmentIds), fn ($id) => $id > 0)));
 
-        if ($contract->amortizationInstallments()->exists()) {
-            $query = $contract->amortizationInstallments()
-                ->where(function ($query) {
-                    $query->where('quota_debt', '>', 0)
-                        ->orWhere('remaining_balance', '>', 0);
-                })
-                ->orderBy('due_date', 'asc')
-                ->orderBy('installment_number', 'asc');
-
-            if (! empty($selectedIds)) {
-                $query->whereIn('id', $selectedIds);
-            }
-
-            return $query->get();
-        }
-
-        $query = AmortizationPlan::query()
-            ->where('contract_id', $contract->id)
+        $query = $contract->amortizationInstallments()
             ->where(function ($query) {
-                $query->where('balance_due', '>', 0)
-                    ->orWhere('quota_debt', '>', 0);
+                $query->where('quota_debt', '>', 0)
+                    ->orWhere('remaining_balance', '>', 0);
             })
             ->orderBy('due_date', 'asc')
             ->orderBy('installment_number', 'asc');
@@ -211,37 +190,6 @@ class CascadeCollectionService
         }
 
         return $query->get();
-    }
-
-    private function resolveExtraordinaryInstallment(Contract $contract, $installment): AmortizationInstallment|AmortizationPlan|null
-    {
-        if ($contract->amortizationInstallments()->exists()) {
-            if ($installment instanceof AmortizationInstallment) {
-                return $installment->fresh();
-            }
-
-            return $contract->amortizationInstallments()
-                ->where('installment_number', $installment->installment_number ?? 0)
-                ->first();
-        }
-
-        if ($installment instanceof AmortizationPlan) {
-            return $installment->fresh();
-        }
-
-        return AmortizationPlan::query()
-            ->where('contract_id', $contract->id)
-            ->where('installment_number', $installment->installment_number ?? 0)
-            ->first();
-    }
-
-    private function applyLegacyPlanSurplus(AmortizationPlan $installment, string $surplusAmount, Carbon $transactionDate): void
-    {
-        $installment->update([
-            'balance_due' => '0.00',
-            'status' => AmortizationStatusEnum::PAID->value,
-            'payment_date' => $transactionDate->toDateString(),
-        ]);
     }
 
     private function normalizeMoney(string $value): string

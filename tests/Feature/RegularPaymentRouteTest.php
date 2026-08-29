@@ -10,6 +10,8 @@ it('maps selected installments and payment option into the regular payment DTO',
 
     $request->shouldReceive('input')->with('selected_installments', Mockery::any())->andReturn([3, 4]);
     $request->shouldReceive('input')->with('installment_numbers', Mockery::any())->andReturn([]);
+    // fromRequest evalúa el default: input('payment_date', input('transaction_date'))
+    $request->shouldReceive('input')->with('transaction_date')->andReturn('2026-08-24');
     $request->shouldReceive('input')->with('transaction_date', Mockery::any())->andReturn('2026-08-24');
     $request->shouldReceive('input')->with('payment_date', Mockery::any())->andReturn(null);
     $request->shouldReceive('input')->with('transaction_type', Mockery::any())->andReturn('regular_payment');
@@ -18,6 +20,7 @@ it('maps selected installments and payment option into the regular payment DTO',
     $request->shouldReceive('validated')->with('payment_method')->andReturn('transfer');
     $request->shouldReceive('validated')->with('payment_option', Mockery::any())->andReturn('reducir_plazo');
     $request->shouldReceive('validated')->with('surplus_action', Mockery::any())->andReturn(null);
+    $request->shouldReceive('validated')->with('recalculation_type', Mockery::any())->andReturn('reducir_plazo');
     $request->shouldReceive('file')->with('receipt')->andReturn(UploadedFile::fake()->create('receipt.pdf', 10, 'application/pdf'));
 
     $dto = CreateTransactionDTO::fromRequest($request, 42);

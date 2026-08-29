@@ -9,7 +9,6 @@ class AmortizationInstallment extends Model
 {
     protected $fillable = [
         'contract_id',
-        'amortization_version_id',
         'installment_number',
         'due_date',
         'receipt_number',
@@ -41,10 +40,5 @@ class AmortizationInstallment extends Model
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
-    }
-
-    public function version(): BelongsTo
-    {
-        return $this->belongsTo(AmortizationVersion::class, 'amortization_version_id');
     }
 } 

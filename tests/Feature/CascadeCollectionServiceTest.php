@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\AmortizationStatusEnum;
-use App\Models\AmortizationPlan;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;

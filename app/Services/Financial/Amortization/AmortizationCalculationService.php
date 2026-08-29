@@ -7,16 +7,16 @@ use Carbon\Carbon;
 
 class AmortizationCalculationService
 {
-    public function calculateFixedQuota(string $principal, string $annualRatePercent, int $months): string
+    public function calculateFixedQuota(string $principal, string $monthlyRatePercent, int $months): string
     {
         $principal = $this->normalizeMoney($principal);
-        $annualRatePercent = $this->normalizeMoney($annualRatePercent);
+        $monthlyRatePercent = $this->normalizeMoney($monthlyRatePercent);
 
         if ($months <= 0) {
             return '0.00';
         }
 
-        $monthlyRate = bcdiv($annualRatePercent, '100', 10);
+        $monthlyRate = bcdiv($monthlyRatePercent, '100', 10);
 
         if (bccomp($monthlyRate, '0.00', 10) === 0) {
             return $this->normalizeMoney(bcdiv($principal, (string) $months, 2));
@@ -34,12 +34,12 @@ class AmortizationCalculationService
 
     public function calculateInterest(
                 string $balance,
-                string $annualRatePercent
+                string $monthlyRatePercent
             ): string {
                 $balance = $this->normalizeMoney($balance);
-                $annualRatePercent = $this->normalizeMoney($annualRatePercent);
+                $monthlyRatePercent = $this->normalizeMoney($monthlyRatePercent);
 
-                $monthlyRate = bcdiv($annualRatePercent, '100', 10);
+                $monthlyRate = bcdiv($monthlyRatePercent, '100', 10);
 
                 return $this->normalizeMoney(
                     bcmul($balance, $monthlyRate, 10)
