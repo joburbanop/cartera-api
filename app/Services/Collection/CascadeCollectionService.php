@@ -7,10 +7,12 @@ use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\AmortizationPlan;
 use App\Models\Contract;
+use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
 class CascadeCollectionService
@@ -25,9 +27,9 @@ class CascadeCollectionService
         ?string $paymentOption = null,
         ?Carbon $transactionDate = null,
         array $selectedInstallmentIds = [],
-    ): array
-    {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds) {
+        ?UploadedFile $receipt = null,
+    ): array {
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt) {
             $contract = Contract::findOrFail($contractId);
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
@@ -44,6 +46,17 @@ class CascadeCollectionService
                 'transaction_date' => $effectiveTransactionDate->toDateString(),
                 'payment_method' => 'cash',
             ]);
+
+            if ($receipt) {
+                $path = $receipt->store('receipts', 'local');
+
+                Receipt::create([
+                    'transaction_id' => $transaction->id,
+                    'file_path' => $path,
+                    'file_name' => $receipt->getClientOriginalName(),
+                    'file_type' => $receipt->getClientMimeType(),
+                ]);
+            }
 
             $pendingInstallments = $this->getPendingInstallments($contract, $selectedInstallmentIds)->values();
             $totalInstallments = $pendingInstallments->count();

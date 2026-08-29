@@ -40,6 +40,7 @@ class StoreCascadePaymentRequest extends FormRequest
                         ->where('installment_number', '>', 0)
                     ),
             ],
+            'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];
     }
 

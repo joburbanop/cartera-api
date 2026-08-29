@@ -4,6 +4,7 @@ namespace App\DTOs;
 
 use App\Http\Requests\StoreCascadePaymentRequest;
 use Carbon\Carbon;
+use Illuminate\Http\UploadedFile;
 
 class CascadePaymentDTO
 {
@@ -13,6 +14,7 @@ class CascadePaymentDTO
         public readonly ?string $paymentOption,
         public readonly Carbon $transactionDate,
         public readonly array $selectedInstallments,
+        public readonly ?UploadedFile $receipt = null,
     ) {}
 
     public static function fromRequest(StoreCascadePaymentRequest $request): self
@@ -26,6 +28,7 @@ class CascadePaymentDTO
             paymentOption: $request->input('payment_option'),
             transactionDate: self::parseInputDate($rawDate),
             selectedInstallments: array_values(array_map('intval', (array) $selectedInstallments)),
+            receipt: $request->file('receipt'),
         );
     }
 

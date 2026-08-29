@@ -36,18 +36,22 @@ class TransactionController extends Controller
             ->orderByDesc('created_at')
             ->get()
             ->map(function (Transaction $transaction) {
-                $receiptPath = $transaction->receipt?->file_path;
-
                 return [
                     'id' => $transaction->id,
                     'transaction_type' => $transaction->transaction_type,
                     'amount' => $transaction->amount,
                     'payment_method' => $transaction->payment_method,
-                    'transaction_date' => $transaction->transaction_date ? $transaction->transaction_date->format('Y-m-d') : null,
-                    'created_at' => $transaction->created_at ? $transaction->created_at->format('Y-m-d H:i:s') : null,
-                    'receipt' => $receiptPath ? Storage::disk('public')->url($receiptPath) : null,
+                    'transaction_date' => $transaction->transaction_date
+                        ? $transaction->transaction_date->format('Y-m-d')
+                        : null,
+                    'created_at' => $transaction->created_at
+                        ? $transaction->created_at->format('Y-m-d H:i:s')
+                        : null,
                     'customer_name' => $transaction->contract?->customer?->name ?? 'Sin Cliente',
                     'lot_number' => $transaction->contract?->lot?->number ?? 'Sin Lote',
+                    'receipt' => $transaction->receipt
+                        ? route('transactions.receipt', $transaction->id)
+                        : null,
                 ];
             });
 
@@ -63,8 +67,6 @@ class TransactionController extends Controller
             ->orderByDesc('created_at')
             ->get()
             ->map(function (Transaction $transaction) {
-                $receiptPath = $transaction->receipt?->file_path;
-
                 return [
                     'id' => $transaction->id,
                     'contract_id' => $transaction->contract_id,
@@ -73,7 +75,9 @@ class TransactionController extends Controller
                     'payment_method' => $transaction->payment_method,
                     'transaction_date' => $transaction->transaction_date?->format('Y-m-d'),
                     'created_at' => $transaction->created_at?->format('Y-m-d H:i:s'),
-                    'receipt' => $receiptPath ? Storage::disk('public')->url($receiptPath) : null,
+                    'receipt' => $transaction->receipt
+                        ? route('transactions.receipt', $transaction->id)
+                        : null,
                 ];
             });
 
@@ -98,5 +102,31 @@ class TransactionController extends Controller
             'message' => 'Abono de cuota inicial registrado correctamente.',
             'data' => $transaction,
         ], 201);
+    }
+
+    public function receipt(Transaction $transaction)
+    {
+        $receipt = $transaction->receipt;
+
+        if (! $receipt) {
+            return response()->json([
+                'message' => 'Esta transacción no tiene recibo.',
+            ], 404);
+        }
+
+        if (! Storage::disk('local')->exists($receipt->file_path)) {
+            return response()->json([
+                'message' => 'El archivo del recibo no existe.',
+            ], 404);
+        }
+
+        return Storage::disk('local')->response(
+            $receipt->file_path,
+            $receipt->file_name,
+            [
+                'Content-Type' => $receipt->file_type,
+                'Content-Disposition' => 'inline; filename="' . $receipt->file_name . '"',
+            ]
+        );
     }
 }

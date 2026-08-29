@@ -27,6 +27,7 @@ class CollectionController extends Controller
             $dto->paymentOption,
             $dto->transactionDate,
             $dto->selectedInstallments,
+            $dto->receipt,
         );
 
         return $this->successResponse(
