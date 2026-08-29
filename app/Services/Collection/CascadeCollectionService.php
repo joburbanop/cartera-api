@@ -2,6 +2,8 @@
 
 namespace App\Services\Collection;
 
+use App\Models\Receipt;
+use Illuminate\Http\UploadedFile;
 use App\Enums\AmortizationStatusEnum;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
@@ -18,9 +20,10 @@ class CascadeCollectionService
         private readonly ExtraordinaryPaymentService $extraordinaryPaymentService,
     ) {}
 
-    public function process(int $contractId, string $amount, ?string $paymentOption = null): array
+    public function process(int $contractId, string $amount, ?string $paymentOption = null, ?UploadedFile $receipt = null,
+        ): array
     {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption) {
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $receipt) {
             $contract = Contract::findOrFail($contractId);
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
@@ -36,6 +39,17 @@ class CascadeCollectionService
                 'payment_method' => 'cash',
             ]);
 
+
+            if ($receipt) {
+                $path = $receipt->store('receipts', 'local');
+
+                Receipt::create([
+                    'transaction_id' => $transaction->id,
+                    'file_path' => $path,
+                    'file_name' => $receipt->getClientOriginalName(),
+                    'file_type' => $receipt->getClientMimeType(),
+                ]);
+            }
             $pendingInstallments = $this->getPendingInstallments($contract);
             $index = 0;
 

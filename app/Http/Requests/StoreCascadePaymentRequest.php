@@ -17,6 +17,7 @@ class StoreCascadePaymentRequest extends FormRequest
             'contract_id' => ['required', 'integer', 'exists:contracts,id'],
             'amount' => ['required', 'numeric', 'min:1'],
             'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas'],
+            'receipt' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ];
     }
 }

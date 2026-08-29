@@ -68,4 +68,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf']);
 
     Route::post('/collections/cascade', [CollectionController::class, 'store']);
+
+    Route::get('/transactions/{transaction}/receipt',[TransactionController::class, 'receipt'])->name('transactions.receipt');
 });
