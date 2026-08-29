@@ -2,6 +2,7 @@
 
 namespace App\Services\Financial\Amortization;
 
+use App\Enums\AmortizationStatus;
 use App\Models\Contract;
 use Carbon\Carbon;
 
@@ -98,7 +99,7 @@ class AmortizationCalculationService
             'quota_debt' => $this->normalizeMoney((string) $contract->down_payment_pactada),
             'remaining_balance' => $loanPrincipal,
             'projected_balance' => $loanPrincipal,
-            'status' => 'pending',
+            'status' => AmortizationStatus::PENDING->value,
         ];
 
         for ($index = 1; $index <= $months; $index++) {
@@ -128,7 +129,7 @@ class AmortizationCalculationService
                 'quota_debt' => $this->normalizeMoney($fixedQuota),
                 'remaining_balance' => $this->normalizeMoney($balance),
                 'projected_balance' => $this->normalizeMoney($balance),
-                'status' => 'pending',
+                'status' => AmortizationStatus::PENDING->value,
             ];
         }
 

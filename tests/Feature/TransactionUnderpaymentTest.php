@@ -35,7 +35,7 @@ it('absorbs an underpayment residual under the tolerance while freezing the real
         'installment_number' => 1,
         'installment_value' => '100.00',
         'remaining_balance' => '100.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
@@ -65,7 +65,7 @@ it('applies a partial payment by interest first and keeps quota debt separate fr
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '4266081.34',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => now()->subDay()->toDateString(),
     ]);
 
@@ -123,7 +123,7 @@ it('recalculates the real amortization balance from the previous residual when t
         'installment_value' => '100.00',
         'interest_value' => '0.00',
         'remaining_balance' => '0.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
@@ -149,7 +149,7 @@ it('keeps the real amortization balance separate from the outstanding quota debt
         'installment_value' => '100.00',
         'interest_value' => '0.00',
         'remaining_balance' => '9000.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
@@ -175,7 +175,7 @@ it('keeps the initial payment balance unchanged while reducing only the initial 
         'installment_value' => '10519600.00',
         'remaining_balance' => '94676400.00',
         'quota_debt' => '10519600.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
@@ -203,7 +203,7 @@ it('absorbs a residual below 500 as paid under the business tolerance rule', fun
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '1000.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => now()->subDay()->toDateString(),
     ]);
 
@@ -227,7 +227,7 @@ it('keeps a future-due partial payment as partial instead of overdue', function 
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2106024.23',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => now()->addDay()->toDateString(),
     ]);
 
@@ -251,7 +251,7 @@ it('absorbs tiny rounding surpluses without creating a fake extra payment', func
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '100.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => now()->subDay()->toDateString(),
     ]);
 
@@ -276,7 +276,7 @@ it('applies the LOTE 6 payment rules for partial, exact, and surplus payments', 
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2106024.23',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => '2025-11-05',
     ]);
 
@@ -299,12 +299,12 @@ it('applies the LOTE 6 payment rules for partial, exact, and surplus payments', 
     $surplus = app(TransactionService::class)->calculatePaymentImpactForInstallment($plan, '7106024.23', $contract);
 
     expect($surplus['status'])->toBe(AmortizationStatus::PAID)
-        ->and($surplus['remaining_balance'])->toBe('89676400.00')
+        ->and($surplus['remaining_balance'])->toBe('94676400.00')
         ->and($surplus['quota_debt'])->toBe('0.00')
         ->and($surplus['excedente'])->toBe('5000000.00');
 });
 
-it('reduces the current row balance by the surplus when the payment exceeds the scheduled installment', function () {
+it('keeps the current row credit balance unchanged when the surplus will cascade to later installments', function () {
     $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,
     ]);
@@ -318,14 +318,14 @@ it('reduces the current row balance by the surplus when the payment exceeds the 
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2106024.23',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
         'due_date' => '2025-11-05',
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment($plan, '7106024.23', $contract);
 
     expect($result['status'])->toBe(AmortizationStatus::PAID)
-        ->and($result['remaining_balance'])->toBe('72238533.17')
+        ->and($result['remaining_balance'])->toBe('77238533.17')
         ->and($result['quota_debt'])->toBe('0.00')
         ->and($result['excedente'])->toBe('5000000.00');
 });
@@ -346,7 +346,7 @@ it('caps the surplus to the remaining balance so it never goes below zero', func
         $table->unsignedBigInteger('contract_id');
         $table->integer('installment_number');
         $table->date('due_date');
-        $table->string('status')->default('sin_pagar');
+        $table->string('status')->default('pending');
         $table->decimal('installment_value', 15, 2)->default(0);
         $table->decimal('extra_payment', 15, 2)->default(0);
         $table->decimal('interest_value', 15, 2)->default(0);
@@ -383,7 +383,7 @@ it('caps the surplus to the remaining balance so it never goes below zero', func
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2301693.09',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $current = AmortizationInstallment::query()->create([
@@ -399,7 +399,7 @@ it('caps the surplus to the remaining balance so it never goes below zero', func
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2301693.09',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
@@ -462,7 +462,7 @@ it('absorbs an underpayment residual under the tolerance in preventa without red
         'installment_value' => '200.00',
         'remaining_balance' => '200.00',
         'quota_debt' => '200.00',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
@@ -492,7 +492,7 @@ it('uses the full principal amortized when applying a surplus payment to the ins
         $table->unsignedBigInteger('contract_id');
         $table->integer('installment_number');
         $table->date('due_date');
-        $table->string('status')->default('sin_pagar');
+        $table->string('status')->default('pending');
         $table->decimal('installment_value', 15, 2)->default(0);
         $table->decimal('extra_payment', 15, 2)->default(0);
         $table->decimal('interest_value', 15, 2)->default(0);
@@ -527,7 +527,7 @@ it('uses the full principal amortized when applying a surplus payment to the ins
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2301693.09',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentReductionService::class)
@@ -555,7 +555,7 @@ it('uses the previous installment balance in the term reduction path instead of 
         $table->unsignedBigInteger('contract_id');
         $table->integer('installment_number');
         $table->date('due_date');
-        $table->string('status')->default('sin_pagar');
+        $table->string('status')->default('pending');
         $table->decimal('installment_value', 15, 2)->default(0);
         $table->decimal('extra_payment', 15, 2)->default(0);
         $table->decimal('interest_value', 15, 2)->default(0);
@@ -608,7 +608,7 @@ it('uses the previous installment balance in the term reduction path instead of 
         'interest_paid' => '0.00',
         'principal_paid' => '0.00',
         'quota_debt' => '2301693.09',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $updated = app(\App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService::class)
@@ -633,7 +633,7 @@ it('does not reduce the same surplus twice when the installment already reflects
         $table->unsignedBigInteger('contract_id');
         $table->integer('installment_number');
         $table->date('due_date');
-        $table->string('status')->default('sin_pagar');
+        $table->string('status')->default('pending');
         $table->decimal('installment_value', 15, 2)->default(0);
         $table->decimal('extra_payment', 15, 2)->default(0);
         $table->decimal('interest_value', 15, 2)->default(0);
@@ -694,7 +694,7 @@ it('does not subtract the scheduled principal twice when an exact payment settle
         $table->unsignedBigInteger('contract_id');
         $table->integer('installment_number');
         $table->date('due_date');
-        $table->string('status')->default('sin_pagar');
+        $table->string('status')->default('pending');
         $table->decimal('installment_value', 15, 2)->default(0);
         $table->decimal('extra_payment', 15, 2)->default(0);
         $table->decimal('interest_value', 15, 2)->default(0);
@@ -741,7 +741,7 @@ it('does not subtract the scheduled principal twice when an exact payment settle
         'quota_debt' => '1715402.83',
         'remaining_balance' => '76171757.17',
         'projected_balance' => '76171757.17',
-        'status' => AmortizationStatus::UNPAID->value,
+        'status' => AmortizationStatus::PENDING->value,
     ]);
 
     $service = app(RegularPaymentService::class);
@@ -771,7 +771,7 @@ it('does not subtract the scheduled principal twice when an exact payment settle
         ->and($installment->projected_balance)->toBe('76171757.17')
         ->and($installment->quota_debt)->toBe('0.00')
         ->and($installment->extra_payment)->toBe('0.00')
-        ->and($installment->status)->toBe(AmortizationStatus::PAID->value)
+        ->and($installment->status)->toBe(AmortizationStatus::PAID)
         ->and(number_format((float) $installment->interest_paid, 2, '.', ''))->toBe('771160.00')
         ->and(number_format((float) $installment->principal_paid, 2, '.', ''))->toBe('944242.83');
 });

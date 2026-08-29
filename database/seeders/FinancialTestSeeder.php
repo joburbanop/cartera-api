@@ -174,7 +174,7 @@ class FinancialTestSeeder extends Seeder
                 'quota_debt' => $currentInstallmentValue,
                 'remaining_balance' => $newBalance,
                 'projected_balance' => $newBalance,
-                'status' => 'sin_pagar',
+                'status' => 'pending',
             ]);
 
             $balance = $newBalance;

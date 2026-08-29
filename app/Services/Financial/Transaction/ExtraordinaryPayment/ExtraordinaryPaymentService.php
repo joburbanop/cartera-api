@@ -6,6 +6,7 @@ use App\DTOs\CreateTransactionDTO;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Transaction;
+use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentAdvanceService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentReductionService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService;
@@ -18,6 +19,7 @@ class ExtraordinaryPaymentService
         private readonly TermReductionService $termReductionService,
         private readonly PaymentReductionService $paymentReductionService,
         private readonly PaymentAdvanceService $paymentAdvanceService,
+        private readonly InstallmentPaymentAllocator $allocator,
     ) {}
 
     public function registerExtraordinaryPayment(CreateTransactionDTO $dto): Transaction
@@ -43,12 +45,14 @@ class ExtraordinaryPaymentService
         $surplusAmount = (string) $dto->amount;
         $option = strtolower((string) ($dto->paymentOption ?? ''));
 
-        \Log::info('ExtraordinaryPaymentService - opción recibida', [
-        'payment_option' => $dto->paymentOption,
-        'option_normalized' => $option,
-        ]);
-
         return DB::transaction(function () use ($contract, $installment, $surplusAmount, $option, $dto) {
+            $remainder = $this->allocator->settlePriorUnpaidOrFail(
+                $contract,
+                $installment,
+                $surplusAmount,
+                $dto->transactionDate,
+            );
+
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
                 'transaction_type' => $dto->transactionType,
@@ -57,7 +61,9 @@ class ExtraordinaryPaymentService
                 'payment_method' => $dto->paymentMethod,
             ]);
 
-            $this->handle($contract, $installment, $surplusAmount, $option);
+            if ($this->allocator->leftoverExceedsTolerance($remainder)) {
+                $this->handle($contract, $installment->fresh(), $remainder, $option);
+            }
 
             return $transaction;
         });
@@ -66,11 +72,6 @@ class ExtraordinaryPaymentService
     public function handle(Contract $contract, AmortizationInstallment $installment, string $surplusAmount, string $option): AmortizationInstallment
     {
         $strategy = $this->resolveStrategy(strtolower($option));
-
-          \Log::info('ExtraordinaryPaymentService - estrategia seleccionada', [
-        'option' => $option,
-        'strategy' => get_class($strategy),
-    ]);
 
         return $strategy->apply($contract, $installment, $surplusAmount);
     }

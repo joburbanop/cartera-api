@@ -3,6 +3,7 @@
 namespace App\Services\CRM;
 
 use App\DTOs\CreateCustomerDTO;
+use App\Enums\AmortizationStatus;
 use App\Models\Customer;
 
 class CustomerService
@@ -28,7 +29,7 @@ class CustomerService
             ->with([
                 'activeContracts.lot',
                 'activeContracts.installments' => function ($query) {
-                    $query->whereNotIn('status', ['paid', 'pagada', 'cancelled', 'cancelado'])
+                    $query->whereNotIn('status', [AmortizationStatus::PAID->value])
                         ->whereDate('due_date', '<', now());
                 },
             ])

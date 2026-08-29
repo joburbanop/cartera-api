@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Enums\AmortizationStatusEnum;
+use App\Enums\AmortizationStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Customer;
@@ -126,7 +126,7 @@ class AmortizationRealScenariosTest extends TestCase
 
         $this->installment1->refresh();
 
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
         $this->assertSame('1000000.00', $this->paidAmount($this->installment1));
     }
 
@@ -142,7 +142,7 @@ class AmortizationRealScenariosTest extends TestCase
         $firstResponse->assertCreated();
 
         $this->installment1->refresh();
-        $this->assertSame(AmortizationStatusEnum::PARTIAL->value, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PARTIAL, $this->installment1->status);
         $this->assertSame('400000.00', $this->paidAmount($this->installment1));
 
         $secondResponse = $this->postJson('/api/collections/cascade', [
@@ -155,7 +155,7 @@ class AmortizationRealScenariosTest extends TestCase
         $secondResponse->assertCreated();
 
         $this->installment1->refresh();
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
         $this->assertSame('1000000.00', $this->paidAmount($this->installment1));
         $this->assertDatabaseCount('transactions', 2);
     }
@@ -179,9 +179,9 @@ class AmortizationRealScenariosTest extends TestCase
         $this->installment2->refresh();
         $this->installment3->refresh();
 
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment2->status);
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment3->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment2->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment3->status);
         $this->assertSame('1000000.00', $this->paidAmount($this->installment1));
         $this->assertSame('1000000.00', $this->paidAmount($this->installment2));
         $this->assertSame('1000000.00', $this->paidAmount($this->installment3));
@@ -207,8 +207,8 @@ class AmortizationRealScenariosTest extends TestCase
         $this->installment1->refresh();
         $this->installment2->refresh();
 
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment2->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment2->status);
         $this->assertSame('3000000.00', number_format((float) $this->installment2->extra_payment, 2, '.', ''));
     }
 
@@ -229,8 +229,8 @@ class AmortizationRealScenariosTest extends TestCase
         $this->installment1->refresh();
         $this->installment2->refresh();
 
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
-        $this->assertSame(AmortizationStatusEnum::PARTIAL->value, $this->installment2->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PARTIAL, $this->installment2->status);
         $this->assertSame('1000000.00', $this->paidAmount($this->installment1));
         $this->assertSame('500000.00', $this->paidAmount($this->installment2));
         $this->assertSame('500000.00', number_format((float) $this->installment2->quota_debt, 2, '.', ''));
@@ -260,9 +260,9 @@ class AmortizationRealScenariosTest extends TestCase
 
         // Esta asercion valida que el flujo de cascade no procese cuota inicial.
         $this->assertSame('2000000.00', number_format((float) $this->initialInstallment->quota_debt, 2, '.', ''));
-        $this->assertSame(AmortizationStatusEnum::PENDING->value, $this->initialInstallment->status);
+        $this->assertSame(AmortizationStatus::PENDING, $this->initialInstallment->status);
 
-        $this->assertSame(AmortizationStatusEnum::PAID->value, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->installment1->status);
     }
 
     private function createInstallment(
@@ -284,7 +284,7 @@ class AmortizationRealScenariosTest extends TestCase
             'quota_debt' => $installmentValue,
             'remaining_balance' => $remainingBalance,
             'projected_balance' => $remainingBalance,
-            'status' => AmortizationStatusEnum::PENDING->value,
+            'status' => AmortizationStatus::PENDING->value,
         ]);
     }
 

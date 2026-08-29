@@ -2,21 +2,24 @@
 
 namespace App\Services\Collection;
 
-use App\Enums\AmortizationStatusEnum;
+use App\Enums\AmortizationStatus;
 use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
+use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Http\UploadedFile;      
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class CascadeCollectionService
 {
     public function __construct(
         private readonly ExtraordinaryPaymentService $extraordinaryPaymentService,
+        private readonly InstallmentPaymentAllocator $allocator,
     ) {}
 
     public function process(
@@ -32,10 +35,10 @@ class CascadeCollectionService
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
             $appliedInstallments = [];
-            $lastPaidInstallment = null;
             $normalizedPaymentOption = $this->normalizePaymentOption($paymentOption);
             $effectiveTransactionDate = ($transactionDate ?? Carbon::now())->copy()->startOfDay();
             $hasExplicitSelection = ! empty($selectedInstallmentIds);
+            $hasExtraordinaryOption = $this->isExtraordinaryOption($normalizedPaymentOption);
 
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
@@ -58,68 +61,51 @@ class CascadeCollectionService
 
             $pendingInstallments = $this->getPendingInstallments($contract, $selectedInstallmentIds)->values();
             $totalInstallments = $pendingInstallments->count();
+            $processedIds = [];
 
             foreach ($pendingInstallments as $index => $installment) {
                 if (bccomp($availableAmount, '0.00', 2) <= 0) {
                     break;
                 }
 
-                $status = strtolower((string) ($installment->status ?? ''));
-                if (in_array($status, ['pagada', 'paid'], true)) {
+                if ($installment->status === AmortizationStatus::PAID) {
                     continue;
                 }
 
-                $isLastSelected = $hasExplicitSelection && ($index === $totalInstallments - 1);
+                $isLastSelected = $hasExplicitSelection && $hasExtraordinaryOption && ($index === $totalInstallments - 1);
                 $balanceDue = $this->normalizeMoney((string) ($installment->quota_debt ?? $installment->remaining_balance ?? $installment->installment_value ?? '0.00'));
-                $amountToApply = $isLastSelected
+                $amountToDebt = bccomp($availableAmount, $balanceDue, 2) <= 0
                     ? $availableAmount
-                    : (bccomp($availableAmount, $balanceDue, 2) <= 0 ? $availableAmount : $balanceDue);
-
-                if (bccomp($amountToApply, '0.00', 2) <= 0) {
-                    continue;
-                }
-
-                $amountToDebt = bccomp($amountToApply, $balanceDue, 2) <= 0
-                    ? $amountToApply
                     : $balanceDue;
 
-                $surplusAmount = bccomp($amountToApply, $amountToDebt, 2) === 1
-                    ? $this->normalizeMoney(bcsub($amountToApply, $amountToDebt, 2))
-                    : '0.00';
-
-                $interestValue = $this->normalizeMoney((string) ($installment->interest_value ?? '0.00'));
-                $interestApplied = bccomp($amountToDebt, $interestValue, 2) <= 0
-                    ? $amountToDebt
-                    : $interestValue;
-                $amortizationApplied = max('0.00', $this->normalizeMoney(bcsub($amountToDebt, $interestApplied, 2)));
-
-                $newBalanceDue = max('0.00', $this->normalizeMoney(bcsub($balanceDue, $amountToDebt, 2)));
-
-                // Aplicar tolerancia de redondeo: saldos menores a $1.00 se consideran pagados.
-                if ((float) $newBalanceDue > 0 && (float) $newBalanceDue < 1.00) {
-                    $newBalanceDue = '0.00';
+                if (bccomp($amountToDebt, '0.00', 2) <= 0) {
+                    continue;
                 }
 
-                $status = (float) $newBalanceDue <= 0
-                    ? AmortizationStatusEnum::PAID->value
-                    : AmortizationStatusEnum::PARTIAL->value;
+                $allocation = $this->allocator->applyToInstallment(
+                    $installment,
+                    $amountToDebt,
+                    $effectiveTransactionDate,
+                );
 
-                $installment->update([
-                    'quota_debt' => $newBalanceDue,
-                    'status' => $status,
-                    'payment_date' => $effectiveTransactionDate->toDateString(),
-                ]);
+                $surplusAmount = '0.00';
+                $amountToApply = $allocation['applied'];
 
-                $lastPaidInstallment = $installment;
+                if ($isLastSelected) {
+                    $surplusAmount = $this->normalizeMoney(bcsub($availableAmount, $allocation['applied'], 2));
+                    $amountToApply = $availableAmount;
+                }
+
                 $availableAmount = $this->normalizeMoney(bcsub($availableAmount, $amountToApply, 2));
                 $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $amountToApply, 2));
+                $processedIds[] = (int) $installment->id;
 
                 $appliedInstallments[] = [
                     'installment_id' => $installment->id,
                     'installment_number' => $installment->installment_number,
                     'amount_applied' => $amountToApply,
-                    'balance_due' => $newBalanceDue,
-                    'status' => $status,
+                    'balance_due' => $allocation['quota_debt'],
+                    'status' => $allocation['status'],
                 ];
 
                 if (
@@ -140,10 +126,36 @@ class CascadeCollectionService
                         $extraordinaryInstallment->refresh();
                         $extraordinaryInstallment->update([
                             'payment_date' => $effectiveTransactionDate->toDateString(),
-                            'status' => AmortizationStatusEnum::PAID->value,
+                            'status' => AmortizationStatus::PAID->value,
                         ]);
                     }
                 }
+            }
+
+            if (! $hasExtraordinaryOption && $this->allocator->leftoverExceedsTolerance($availableAmount)) {
+                $cascade = $this->allocator->cascadeToPending(
+                    $contract,
+                    $availableAmount,
+                    $effectiveTransactionDate,
+                    $processedIds,
+                );
+
+                foreach ($cascade['installments'] as $applied) {
+                    $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $applied['amount_applied'], 2));
+                    $appliedInstallments[] = $applied;
+                    $processedIds[] = (int) $applied['installment_id'];
+                }
+
+                $availableAmount = $cascade['remaining'];
+            }
+
+            if (
+                bccomp($processedAmount, '0.00', 2) <= 0
+                || $this->allocator->leftoverExceedsTolerance($availableAmount)
+            ) {
+                throw ValidationException::withMessages([
+                    'amount' => 'La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.',
+                ]);
             }
 
             return [
@@ -151,10 +163,15 @@ class CascadeCollectionService
                 'contract_id' => $contract->id,
                 'amount' => $this->normalizeMoney($amount),
                 'amount_applied' => $processedAmount,
-                'remaining_amount' => $availableAmount,
+                'remaining_amount' => '0.00',
                 'installments' => $appliedInstallments,
             ];
         });
+    }
+
+    private function isExtraordinaryOption(?string $paymentOption): bool
+    {
+        return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'adelantar_cuotas'], true);
     }
 
     private function normalizePaymentOption(?string $paymentOption): ?string
@@ -177,19 +194,11 @@ class CascadeCollectionService
     {
         $selectedIds = array_values(array_unique(array_filter(array_map('intval', $selectedInstallmentIds), fn ($id) => $id > 0)));
 
-        $query = $contract->amortizationInstallments()
-            ->where(function ($query) {
-                $query->where('quota_debt', '>', 0)
-                    ->orWhere('remaining_balance', '>', 0);
-            })
-            ->orderBy('due_date', 'asc')
-            ->orderBy('installment_number', 'asc');
-
-        if (! empty($selectedIds)) {
-            $query->whereIn('id', $selectedIds);
-        }
-
-        return $query->get();
+        return $this->allocator->pendingInstallments(
+            $contract,
+            [],
+            $selectedIds,
+        );
     }
 
     private function normalizeMoney(string $value): string

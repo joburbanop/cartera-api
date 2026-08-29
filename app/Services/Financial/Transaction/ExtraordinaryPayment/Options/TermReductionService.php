@@ -63,6 +63,7 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
                 ? Carbon::parse($currentInstallment->due_date)->addMonthNoOverflow(1)
                 : now();
             $rows = [];
+            $hasReceiptNumber = Schema::hasColumn('amortization_installments', 'receipt_number');
 
             while ($balance > 0) {
                 $interest = round($balance * $rate, 2);
@@ -91,12 +92,12 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
                     'quota_debt' => round($installmentValue, 2),
                     'remaining_balance' => round(max(0.0, $balance), 2),
                     'projected_balance' => round(max(0.0, $balance), 2),
-                    'status' => AmortizationStatus::UNPAID->value,
+                    'status' => AmortizationStatus::PENDING->value,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
 
-                if (Schema::hasColumn('amortization_installments', 'receipt_number')) {
+                if ($hasReceiptNumber) {
                     $row['receipt_number'] = null;
                 }
 

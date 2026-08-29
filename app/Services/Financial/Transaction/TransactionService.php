@@ -118,7 +118,6 @@ class TransactionService
         }
 
         $surplus = $this->normalizeSurplus(bcsub($paymentAmount, $pendingDebt, 2));
-        $newBalance = max('0.00', bcsub($projectedBalance, $surplus, 2));
 
         return [
             'status' => AmortizationStatus::PAID,
@@ -126,17 +125,12 @@ class TransactionService
             'interest_paid' => $interestValue,
             'principal_paid' => $principalValue,
             'excedente' => $surplus,
-            'remaining_balance' => $newBalance,
+            'remaining_balance' => $projectedBalance,
         ];
     }
 
     public function register(CreateTransactionDTO $dto): Transaction
     {
-        \Log::info('FECHA RECIBIDA EN BACKEND (TransactionService::register): ', [
-            'date' => $dto->transactionDate->toDateString(),
-            'raw_iso' => $dto->transactionDate->toIso8601String(),
-        ]);
-
         return match ($dto->transactionType) {
 
             TransactionType::DOWN_PAYMENT =>

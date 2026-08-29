@@ -12,13 +12,17 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
+use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RegularPaymentService
-
 {
+    public function __construct(
+        private readonly InstallmentPaymentAllocator $allocator,
+    ) {}
+
     private function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
     {
         if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
@@ -231,9 +235,22 @@ class RegularPaymentService
             ]);
         }
 
+        $this->assertPaymentCanBeApplied($contract, $plan, $dto);
+
+        $paymentForTarget = (string) $dto->amount;
+
+        if ($this->hasExtraordinaryOption($dto)) {
+            $paymentForTarget = $this->allocator->settlePriorUnpaidOrFail(
+                $contract,
+                $plan,
+                $paymentForTarget,
+                $dto->transactionDate,
+            );
+        }
+
         $impact = $this->calculatePaymentImpact(
             $plan,
-            (string) $dto->amount,
+            $paymentForTarget,
             $contract
         );
 
@@ -256,34 +273,44 @@ class RegularPaymentService
             ]);
         }
 
+        if ($this->hasExtraordinaryOption($dto) && bccomp($paymentForTarget, '0.00', 2) <= 0) {
+            return $transaction;
+        }
+
         $projectedBalance = (string) ($plan->projected_balance ?? $plan->remaining_balance ?? '0.00');
         $surplus = (string) ($impact['excedente'] ?? '0.00');
 
-        \Log::info('RegularPaymentService::surplus-start', [
-            'contract_id' => $contract->id,
-            'installment_id' => $plan->id,
-            'installment_number' => $plan->installment_number,
-            'amount' => $dto->amount,
-            'surplus' => $surplus,
-            'projected_balance' => $projectedBalance,
-            'plan_interest' => $plan->interest_value ?? null,
-            'plan_installment_value' => $plan->installment_value ?? null,
-        ]);
+        if (bccomp($surplus, '0.00', 2) > 0 && ! $this->hasExtraordinaryOption($dto)) {
+            $plan->update([
+                'status' => AmortizationStatus::PAID->value,
+                'quota_debt' => '0.00',
+                'payment_date' => $dto->transactionDate,
+                'interest_paid' => (string) ($impact['interest_paid'] ?? '0.00'),
+                'principal_paid' => (string) ($impact['principal_paid'] ?? '0.00'),
+                'remaining_balance' => $projectedBalance,
+                'projected_balance' => $projectedBalance,
+            ]);
+
+            $cascade = $this->allocator->cascadeToPending(
+                $contract,
+                $surplus,
+                $dto->transactionDate,
+                [(int) $plan->id],
+            );
+
+            if ($this->allocator->leftoverExceedsTolerance($cascade['remaining'])) {
+                throw ValidationException::withMessages([
+                    'amount' => 'La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.',
+                ]);
+            }
+
+            return $transaction;
+        }
 
         if (bccomp($surplus, '0.00', 2) > 0) {
             $previousInstallment = $contract->amortizationInstallments()
                 ->where('installment_number', (int) ($plan->installment_number ?? 0) - 1)
                 ->first();
-
-            \Log::info('RegularPaymentService::previous-installment-check', [
-                'contract_id' => $contract->id,
-                'current_installment_number' => $plan->installment_number,
-                'previous_installment_found' => (bool) $previousInstallment,
-                'previous_installment_id' => $previousInstallment?->id,
-                'previous_installment_number' => $previousInstallment?->installment_number,
-                'previous_remaining_balance' => $previousInstallment?->remaining_balance ?? null,
-                'previous_projected_balance' => $previousInstallment?->projected_balance ?? null,
-            ]);
 
             $startingBalance = $previousInstallment
                 ? (float) ($previousInstallment->remaining_balance ?? $previousInstallment->projected_balance ?? 0)
@@ -304,18 +331,6 @@ class RegularPaymentService
             $effectiveSurplus = round(min((float) $surplus, $availableForExtraPayment), 2);
             $totalPrincipalPaid = round($regularPrincipal + $effectiveSurplus, 2);
             $adjustedBalance = round(max(0.0, $startingBalance - $totalPrincipalPaid), 2);
-
-            \Log::info('RegularPaymentService::surplus-calculation', [
-                'contract_id' => $contract->id,
-                'installment_number' => $plan->installment_number,
-                'starting_balance' => $startingBalance,
-                'interest_value' => $interestValue,
-                'regular_principal' => $regularPrincipal,
-                'surplus' => $surplus,
-                'effective_surplus' => $effectiveSurplus,
-                'total_principal_paid' => $totalPrincipalPaid,
-                'adjusted_balance' => $adjustedBalance,
-            ]);
 
             $plan->extra_payment = $effectiveSurplus;
             $plan->interest_value = $interestValue;
@@ -352,7 +367,7 @@ class RegularPaymentService
         $interestPaid = (string) ($impact['interest_paid'] ?? '0.00');
         $principalPaid = (string) ($impact['principal_paid'] ?? '0.00');
 
-        if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) === 0) {
+        if (bccomp($paymentForTarget, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) === 0) {
             $plan->update([
                 'status' => AmortizationStatus::PAID->value,
                 'quota_debt' => '0.00',
@@ -366,7 +381,7 @@ class RegularPaymentService
             return $transaction;
         }
 
-        if (bccomp((string) $dto->amount, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) < 0) {
+        if (bccomp($paymentForTarget, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) < 0) {
             $plan->update([
                 'status' => AmortizationStatus::PARTIAL->value,
                 'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $dto->amount, 2),
@@ -395,4 +410,52 @@ class RegularPaymentService
         return $transaction;
     });
 }
+
+    private function hasExtraordinaryOption(CreateTransactionDTO $dto): bool
+    {
+        $candidates = [
+            strtolower(trim((string) ($dto->paymentOption ?? ''))),
+            strtolower(trim((string) ($dto->recalculationType ?? ''))),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $normalized = match ($candidate) {
+                'reduce_time', 'reducir_plazo', 'reduce_term' => 'reducir_plazo',
+                'reduce_quota', 'reducir_cuota' => 'reducir_cuota',
+                'transfer', 'adelantar_cuotas' => 'adelantar_cuotas',
+                default => $candidate,
+            };
+
+            if (in_array($normalized, ['reducir_plazo', 'reducir_cuota', 'adelantar_cuotas'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function assertPaymentCanBeApplied(
+        Contract $contract,
+        AmortizationInstallment $plan,
+        CreateTransactionDTO $dto,
+    ): void {
+        if ($this->hasExtraordinaryOption($dto)) {
+            return;
+        }
+
+        $quotaDebt = number_format((float) ($plan->quota_debt ?? '0.00'), 2, '.', '');
+        $stillOpen = $plan->status !== AmortizationStatus::PAID && bccomp($quotaDebt, '0.00', 2) > 0;
+
+        if ($stillOpen) {
+            return;
+        }
+
+        if ($this->allocator->pendingInstallments($contract, [(int) $plan->id])->isNotEmpty()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'amount' => 'La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.',
+        ]);
+    }
 }

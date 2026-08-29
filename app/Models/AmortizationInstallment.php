@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AmortizationStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -35,6 +36,7 @@ class AmortizationInstallment extends Model
         'quota_debt' => 'decimal:2',
         'remaining_balance' => 'decimal:2',
         'projected_balance' => 'decimal:2',
+        'status' => AmortizationStatus::class,
     ];
 
     public function contract(): BelongsTo
