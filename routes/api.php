@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\UserController;
 use App\Http\Controllers\Collection\CollectionController;
 use App\Http\Controllers\ContractPaymentPromiseController;
 use App\Http\Controllers\CRM\CustomerController;
+use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Inventory\LotController;
 use App\Http\Controllers\Inventory\ProjectController;
@@ -25,6 +26,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/search', [SearchController::class, 'index']);
+
+    Route::get('/dashboard/cartera-mora', [DashboardController::class, 'carteraMora'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/dashboard/recaudo-reciente', [DashboardController::class, 'recaudoReciente'])
+        ->middleware('permission:transactions.view|payments.register');
+    Route::get('/dashboard/proximos-vencimientos', [DashboardController::class, 'proximosVencimientos'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/dashboard/actividad-reciente', [DashboardController::class, 'actividadReciente'])
+        ->middleware('permission:contracts.view|contracts.manage');
 
     Route::get('/projects', [ProjectController::class, 'index'])
         ->middleware('permission:projects.view|projects.manage');

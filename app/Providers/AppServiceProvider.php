@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Services\Collection\CascadeCollectionService;
+use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use Illuminate\Support\ServiceProvider;
@@ -13,6 +14,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton(DashboardMetricsService::class);
+
         $this->app->singleton(CascadeCollectionService::class, function ($app) {
             return new CascadeCollectionService(
                 $app->make(ExtraordinaryPaymentService::class),
