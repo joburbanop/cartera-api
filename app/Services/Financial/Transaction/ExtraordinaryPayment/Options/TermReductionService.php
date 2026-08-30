@@ -17,16 +17,16 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
             return $installment->fresh();
         }
 
-        $baseBalance = round((float) ($installment->remaining_balance ?? $installment->projected_balance ?? 0), 2);
-        $surplus = max('0.00', $this->normalizeMoney($surplusAmount));
-        $effectiveSurplus = min((float) $surplus, $baseBalance);
-        $newCapital = round(max(0.0, $baseBalance - $effectiveSurplus), 2);
-        $interestValue = round((float) ($installment->interest_value ?? 0), 2);
-        $installmentValue = round((float) ($installment->installment_value ?? 0), 2);
-        $principalValue = round(max(0.0, $installmentValue + $effectiveSurplus - $interestValue), 2);
+        $baseBalance = $this->money($installment->remaining_balance ?? $installment->projected_balance ?? '0.00');
+        $surplus = $this->maxMoney('0.00', $this->money($surplusAmount));
+        $effectiveSurplus = $this->minMoney($surplus, $baseBalance);
+        $newCapital = $this->maxMoney('0.00', bcsub($baseBalance, $effectiveSurplus, 2));
+        $interestValue = $this->money($installment->interest_value ?? '0.00');
+        $installmentValue = $this->money($installment->installment_value ?? '0.00');
+        $principalValue = $this->maxMoney('0.00', bcsub(bcadd($installmentValue, $effectiveSurplus, 2), $interestValue, 2));
 
         $installment->update([
-            'extra_payment' => $this->normalizeMoney((string) $effectiveSurplus),
+            'extra_payment' => $effectiveSurplus,
             'principal_value' => $principalValue,
             'remaining_balance' => $newCapital,
             'projected_balance' => $newCapital,
@@ -48,13 +48,13 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
     {
         DB::transaction(function () use ($contract, $currentInstallment) {
             $currentNumber = (int) ($currentInstallment->installment_number ?? 0);
-            $balance = round((float) ($currentInstallment->remaining_balance ?? $currentInstallment->projected_balance ?? 0), 2);
-            $pmt = max(0.0, (float) ($currentInstallment->installment_value ?? 0));
-            $rate = ((float) ($contract->interest_rate ?? 0)) / 100;
+            $balance = $this->money($currentInstallment->remaining_balance ?? $currentInstallment->projected_balance ?? '0.00');
+            $pmt = $this->maxMoney('0.00', $this->money($currentInstallment->installment_value ?? '0.00'));
+            $rate = bcdiv($this->money($contract->interest_rate ?? '0'), '100', 10);
 
             $this->deleteRemainingFuture($contract, $currentNumber + 1);
 
-            if ($balance <= 0) {
+            if (bccomp($balance, '0.00', 2) <= 0) {
                 return;
             }
 
@@ -65,17 +65,19 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
             $rows = [];
             $hasReceiptNumber = Schema::hasColumn('amortization_installments', 'receipt_number');
 
-            while ($balance > 0) {
-                $interest = round($balance * $rate, 2);
-                $installmentValue = $pmt > 0 ? $pmt : round($balance + $interest, 2);
+            while (bccomp($balance, '0.00', 2) > 0) {
+                $interest = $this->roundMoney(bcmul($balance, $rate, 10));
+                $installmentValue = bccomp($pmt, '0.00', 2) > 0
+                    ? $pmt
+                    : $this->roundMoney(bcadd($balance, $interest, 10));
 
-                if ($balance + $interest < $installmentValue) {
-                    $installmentValue = round($balance + $interest, 2);
-                    $amortization = round($balance, 2);
-                    $balance = 0.0;
+                if (bccomp(bcadd($balance, $interest, 10), $installmentValue, 10) < 0) {
+                    $installmentValue = $this->roundMoney(bcadd($balance, $interest, 10));
+                    $amortization = $this->money($balance);
+                    $balance = '0.00';
                 } else {
-                    $amortization = round(max(0.0, $installmentValue - $interest), 2);
-                    $balance = round(max(0.0, $balance - $amortization), 2);
+                    $amortization = $this->maxMoney('0.00', $this->roundMoney(bcsub($installmentValue, $interest, 10)));
+                    $balance = $this->maxMoney('0.00', $this->roundMoney(bcsub($balance, $amortization, 10)));
                 }
 
                 $row = [
@@ -83,15 +85,15 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
                     'installment_number' => $nextNumber,
                     'due_date' => $dueDate->copy()->format('Y-m-d'),
                     'payment_date' => null,
-                    'installment_value' => round($installmentValue, 2),
+                    'installment_value' => $this->money($installmentValue),
                     'extra_payment' => '0.00',
-                    'interest_value' => round($interest, 2),
-                    'principal_value' => round($amortization, 2),
+                    'interest_value' => $this->money($interest),
+                    'principal_value' => $this->money($amortization),
                     'interest_paid' => '0.00',
                     'principal_paid' => '0.00',
-                    'quota_debt' => round($installmentValue, 2),
-                    'remaining_balance' => round(max(0.0, $balance), 2),
-                    'projected_balance' => round(max(0.0, $balance), 2),
+                    'quota_debt' => $this->money($installmentValue),
+                    'remaining_balance' => $this->maxMoney('0.00', $this->money($balance)),
+                    'projected_balance' => $this->maxMoney('0.00', $this->money($balance)),
                     'status' => AmortizationStatus::PENDING->value,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -106,7 +108,7 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
                 $nextNumber++;
                 $dueDate = $dueDate->copy()->addMonthNoOverflow(1);
 
-                if ($balance <= 0) {
+                if (bccomp($balance, '0.00', 2) <= 0) {
                     break;
                 }
             }
@@ -122,10 +124,5 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
         $contract->amortizationInstallments()
             ->where('installment_number', '>=', $fromInstallmentNumber)
             ->delete();
-    }
-
-    private function normalizeMoney(string $value): string
-    {
-        return number_format((float) $value, 2, '.', '');
     }
 }

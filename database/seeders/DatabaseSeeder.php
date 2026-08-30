@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\BankAccount;
 use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +15,8 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call(RolesAndPermissionsSeeder::class);
+
         $user = User::query()->firstOrCreate(
             ['email' => 'admin@admin.com'],
             [
@@ -22,6 +25,27 @@ class DatabaseSeeder extends Seeder
                 'password' => Hash::make('password'),
             ]
         );
+        $user->syncRoles(['administrador']);
+
+        $socio = User::query()->firstOrCreate(
+            ['email' => 'socio@cartera.test'],
+            [
+                'name' => 'Socio Gerencia',
+                'email' => 'socio@cartera.test',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $socio->syncRoles(['socio_gerencia']);
+
+        $adminSistema = User::query()->firstOrCreate(
+            ['email' => 'sistema@cartera.test'],
+            [
+                'name' => 'Admin Sistema',
+                'email' => 'sistema@cartera.test',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $adminSistema->syncRoles(['admin_sistema']);
 
         User::query()->firstOrCreate(
             ['email' => 'test@example.com'],

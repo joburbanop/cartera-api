@@ -26,14 +26,33 @@ class CustomerService
     {
         return Customer::query()
             ->withCount(['activeContracts'])
-            ->with([
-                'activeContracts.lot',
-                'activeContracts.installments' => function ($query) {
-                    $query->whereNotIn('status', [AmortizationStatus::PAID->value])
-                        ->whereDate('due_date', '<', now());
-                },
-            ])
+            ->with($this->listRelations())
             ->latest()
             ->paginate($perPage);
+    }
+
+    public function getCustomerDetail(int $id): Customer
+    {
+        return Customer::query()
+            ->withCount(['activeContracts'])
+            ->with([
+                ...$this->listRelations(),
+                'contracts.lot.project',
+            ])
+            ->findOrFail($id);
+    }
+
+    /**
+     * @return array<int|string, mixed>
+     */
+    private function listRelations(): array
+    {
+        return [
+            'activeContracts.lot',
+            'activeContracts.installments' => function ($query) {
+                $query->whereNotIn('status', [AmortizationStatus::PAID->value])
+                    ->whereDate('due_date', '<', now());
+            },
+        ];
     }
 }

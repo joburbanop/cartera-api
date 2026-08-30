@@ -63,6 +63,29 @@ class CustomerResource extends JsonResource
             'address' => $this->address,
             'ciudad' => $this->city,
             'city' => $this->city,
+            'contracts' => $this->whenLoaded('contracts', function () {
+                return $this->contracts->map(function ($contract) {
+                    $status = $contract->status;
+                    $statusValue = $status instanceof ContractStatus ? $status->value : $status;
+                    $lot = $contract->lot;
+                    $project = $lot?->project;
+
+                    return [
+                        'id' => $contract->id,
+                        'contract_number' => $contract->contract_number,
+                        'status' => $statusValue,
+                        'lot' => $lot ? [
+                            'id' => $lot->id,
+                            'number' => $lot->number,
+                            'name' => $lot->number,
+                        ] : null,
+                        'project' => $project ? [
+                            'id' => $project->id,
+                            'name' => $project->name,
+                        ] : null,
+                    ];
+                })->values()->all();
+            }),
         ];
     }
 }

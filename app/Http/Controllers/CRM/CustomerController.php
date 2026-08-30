@@ -41,4 +41,14 @@ class CustomerController extends Controller
             'Lista de clientes obtenida exitosamente.'
         );
     }
+
+    public function show(int $customer): JsonResponse
+    {
+        $model = $this->customerService->getCustomerDetail($customer);
+
+        return $this->successResponse(
+            new CustomerResource($model),
+            'Detalle del cliente obtenido exitosamente.'
+        );
+    }
 }

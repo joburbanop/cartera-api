@@ -3,6 +3,7 @@
 namespace App\Services\Financial\Transaction;
 
 use App\Enums\AmortizationStatus;
+use App\Enums\ContractStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use Carbon\Carbon;
@@ -212,6 +213,23 @@ class InstallmentPaymentAllocator
     public function leftoverExceedsTolerance(string $amount): bool
     {
         return bccomp($this->normalizeMoney($amount), '2.00', 2) > 0;
+    }
+
+    public function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
+    {
+        if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
+            return AmortizationStatus::PARTIAL;
+        }
+
+        $dueDate = $plan->due_date ?? null;
+
+        if (! $dueDate) {
+            return AmortizationStatus::OVERDUE;
+        }
+
+        return Carbon::parse($dueDate)->startOfDay()->lt(now()->startOfDay())
+            ? AmortizationStatus::OVERDUE
+            : AmortizationStatus::PARTIAL;
     }
 
     private function sumQuotaDebt(iterable $installments): string

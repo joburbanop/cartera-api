@@ -1,73 +1,97 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Inventory\ProjectController; // <-- Apunta a la subcarpeta
-use App\Http\Controllers\Inventory\LotController;
-use App\Http\Controllers\CRM\CustomerController;
-use App\Http\Controllers\Financial\BankAccountController;
 use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Sales\ContractController;
-use App\Http\Controllers\Sales\AmortizationController;
+use App\Http\Controllers\Auth\UserController;
 use App\Http\Controllers\Collection\CollectionController;
 use App\Http\Controllers\ContractPaymentPromiseController;
+use App\Http\Controllers\CRM\CustomerController;
+use App\Http\Controllers\Financial\BankAccountController;
+use App\Http\Controllers\Inventory\LotController;
+use App\Http\Controllers\Inventory\ProjectController;
+use App\Http\Controllers\SearchController;
+use App\Http\Controllers\Sales\AmortizationController;
+use App\Http\Controllers\Sales\ContractController;
 use App\Http\Controllers\TransactionController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
 
-// RUTAS PÚBLICAS (No necesitan Token)
-//Route::post('/users', [UserController::class, 'store']); // Crear usuario
-Route::post('/login', [AuthController::class, 'login']); // Iniciar sesión
+Route::post('/login', [AuthController::class, 'login']);
 
-
-
-
-
-// RUTAS PROTEGIDAS (Exigen Token)
 Route::middleware('auth:sanctum')->group(function () {
-    
-    // CRM
-    Route::get('/customers', [CustomerController::class, 'index']);
-    Route::post('/customers', [CustomerController::class, 'store']);
+    Route::get('/me', [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/search', [SearchController::class, 'index']);
 
-    //ruta para crear un proyecto inmobiliario
-    Route::post('/projects', [ProjectController::class, 'store']);
-    Route::get('/projects', [ProjectController::class, 'index']);
+    Route::get('/projects', [ProjectController::class, 'index'])
+        ->middleware('permission:projects.view|projects.manage');
+    Route::post('/projects', [ProjectController::class, 'store'])
+        ->middleware('permission:projects.manage');
 
-    //ruta para crear un lote
-    Route::post('/lots', [LotController::class, 'store']);
-    Route::get('/lots', [LotController::class, 'index']);
+    Route::get('/lots', [LotController::class, 'index'])
+        ->middleware('permission:lots.view|lots.manage');
+    Route::post('/lots', [LotController::class, 'store'])
+        ->middleware('permission:lots.manage');
 
+    Route::get('/contracts', [ContractController::class, 'index'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/contracts/{contract}', [ContractController::class, 'show'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::post('/contracts', [ContractController::class, 'store'])
+        ->middleware('permission:contracts.manage');
 
-    // Rutas de CRM (Gestión de Clientes)
-    //Route::post('/customers', [CustomerController::class, 'store']);
+    Route::get('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'index'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::post('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'store'])
+        ->middleware('permission:contracts.manage');
 
+    Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate'])
+        ->middleware('permission:contracts.manage');
 
-    // Rutas Financieras
-    Route::post('/bank-accounts', [BankAccountController::class, 'store']);
-    Route::get('/bank-accounts', [BankAccountController::class, 'index']);
+    Route::get('/transactions', [TransactionController::class, 'index'])
+        ->middleware('permission:transactions.view|payments.register');
+    Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract'])
+        ->middleware('permission:transactions.view|payments.register');
+    Route::get('/transactions/{transaction}/receipt', [TransactionController::class, 'receipt'])
+        ->name('transactions.receipt')
+        ->middleware('permission:transactions.view|payments.register');
+    Route::post('/contracts/{contractId}/transactions', [TransactionController::class, 'store'])
+        ->middleware('permission:payments.register');
+    Route::post('/contracts/{contractId}/transactions/down-payment', [TransactionController::class, 'store'])
+        ->middleware('permission:payments.register');
 
-    Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract']);
-    Route::get('/transactions', [TransactionController::class, 'index']);
-    Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract']);
-    Route::post('/contracts/{contractId}/transactions', [TransactionController::class, 'store']);
-    Route::post('/contracts/{contractId}/transactions/down-payment', [TransactionController::class, 'store']);
+    Route::post('/collections/cascade', [CollectionController::class, 'store'])
+        ->middleware('permission:payments.register|extraordinary-payments.apply');
 
-    // VENTAS / CONTRATOS 
-    Route::post('/contracts', [ContractController::class, 'store']);
-    Route::get('/contracts', [ContractController::class, 'index']);
-    Route::get('/contracts/{contract}', [ContractController::class, 'show']);
-    Route::get('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'index']);
-    Route::post('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'store']);
+    Route::get('/customers', [CustomerController::class, 'index'])
+        ->middleware('permission:customers.manage');
+    Route::get('/customers/{customer}', [CustomerController::class, 'show'])
+        ->middleware('permission:customers.manage');
+    Route::post('/customers', [CustomerController::class, 'store'])
+        ->middleware('permission:customers.manage');
 
-    // AMORTIZACIONES
-    Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate']);
-    Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show']);
-    Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf']);
+    Route::get('/bank-accounts', [BankAccountController::class, 'index'])
+        ->middleware('permission:bank-accounts.manage');
+    Route::post('/bank-accounts', [BankAccountController::class, 'store'])
+        ->middleware('permission:bank-accounts.manage');
 
-    Route::post('/collections/cascade', [CollectionController::class, 'store']);
-
-    Route::get('/transactions/{transaction}/receipt', [TransactionController::class, 'receipt'])->name('transactions.receipt');
+    Route::get('/users', [UserController::class, 'index'])
+        ->middleware('permission:users.manage');
+    Route::post('/users', [UserController::class, 'store'])
+        ->middleware('permission:users.manage');
+    Route::put('/users/{user}', [UserController::class, 'update'])
+        ->middleware('permission:users.manage');
+    Route::patch('/users/{user}', [UserController::class, 'update'])
+        ->middleware('permission:users.manage');
+    Route::put('/users/{user}/role', [UserController::class, 'assignRole'])
+        ->middleware('permission:users.manage');
+    Route::delete('/users/{user}', [UserController::class, 'destroy'])
+        ->middleware('permission:users.manage');
 });

@@ -11,7 +11,6 @@ use App\Models\Project;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class AmortizationRealScenariosTest extends TestCase
@@ -36,8 +35,7 @@ class AmortizationRealScenariosTest extends TestCase
     {
         parent::setUp();
 
-        $user = User::factory()->create();
-        Sanctum::actingAs($user);
+        $user = $this->actingAsRole('administrador');
 
         $project = Project::query()->create([
             'name' => 'Proyecto QA Real Scenarios',

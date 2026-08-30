@@ -4,7 +4,6 @@ namespace App\Services\Financial\Transaction\RegularPayment;
 
 use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
-use App\Enums\ContractStatus;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
@@ -13,7 +12,6 @@ use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -22,23 +20,6 @@ class RegularPaymentService
     public function __construct(
         private readonly InstallmentPaymentAllocator $allocator,
     ) {}
-
-    private function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
-    {
-        if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
-            return AmortizationStatus::PARTIAL;
-        }
-
-        $dueDate = $plan->due_date ?? null;
-
-        if (! $dueDate) {
-            return AmortizationStatus::OVERDUE;
-        }
-
-        return Carbon::parse($dueDate)->startOfDay()->lt(now()->startOfDay())
-            ? AmortizationStatus::OVERDUE
-            : AmortizationStatus::PARTIAL;
-    }
 
     private function normalizeSurplus(string $surplus): string
     {
@@ -155,7 +136,7 @@ class RegularPaymentService
                 ];
             }
 
-            $status = $this->resolvePartialStatus($plan, $contract);
+            $status = $this->allocator->resolvePartialStatus($plan, $contract);
 
             return [
                 'status' => $status,

@@ -29,28 +29,30 @@ abstract class AbstractExtraordinaryPaymentService
             ->first();
 
         $startingBalance = $previousInstallment
-            ? (float) ($previousInstallment->remaining_balance ?? $previousInstallment->projected_balance ?? 0)
-            : (float) ($installment->projected_balance ?? $installment->remaining_balance ?? 0);
+            ? $this->money($previousInstallment->remaining_balance ?? $previousInstallment->projected_balance ?? '0.00')
+            : $this->money($installment->projected_balance ?? $installment->remaining_balance ?? '0.00');
 
-        if ($startingBalance <= 0) {
-            $startingBalance = round(
-                (float) ($contract->sale_price ?? 0) - (float) ($contract->down_payment_pactada ?? 0),
+        if (bccomp($startingBalance, '0.00', 2) <= 0) {
+            $startingBalance = $this->money(bcsub(
+                $this->money($contract->sale_price ?? '0.00'),
+                $this->money($contract->down_payment_pactada ?? '0.00'),
                 2
-            );
+            ));
         }
 
-        $interest = (float) ($installment->interest_value ?? 0);
+        $interest = $this->money($installment->interest_value ?? '0.00');
 
-        if ($interest <= 0) {
-            $interest = round($startingBalance * ((float) ($contract->interest_rate ?? 0) / 100), 2);
+        if (bccomp($interest, '0.00', 2) <= 0) {
+            $rate = bcdiv($this->money($contract->interest_rate ?? '0'), '100', 10);
+            $interest = $this->roundMoney(bcmul($startingBalance, $rate, 10));
         }
 
-        $regularPrincipal = round((float) ($installment->installment_value ?? 0) - $interest, 2);
-        $availableForExtraPayment = round(max(0.0, $startingBalance - $regularPrincipal), 2);
-        $effectiveSurplus = round(min((float) $surplusAmount, $availableForExtraPayment), 2);
-        $montoPagadoTotal = round((float) ($installment->installment_value ?? 0) + $effectiveSurplus, 2);
-        $amortizacion = round(max(0.0, $montoPagadoTotal - $interest), 2);
-        $newBalance = round(max(0.0, $startingBalance - $amortizacion), 2);
+        $regularPrincipal = $this->roundMoney(bcsub($this->money($installment->installment_value ?? '0.00'), $interest, 10));
+        $availableForExtraPayment = $this->maxMoney('0.00', bcsub($startingBalance, $regularPrincipal, 2));
+        $effectiveSurplus = $this->roundMoney($this->minMoney($this->money($surplusAmount), $availableForExtraPayment));
+        $montoPagadoTotal = $this->roundMoney(bcadd($this->money($installment->installment_value ?? '0.00'), $effectiveSurplus, 10));
+        $amortizacion = $this->maxMoney('0.00', $this->roundMoney(bcsub($montoPagadoTotal, $interest, 10)));
+        $newBalance = $this->maxMoney('0.00', $this->roundMoney(bcsub($startingBalance, $amortizacion, 10)));
 
         $installment->update([
             'extra_payment' => $effectiveSurplus,
@@ -63,5 +65,33 @@ abstract class AbstractExtraordinaryPaymentService
         ]);
 
         return $installment->fresh();
+    }
+
+    protected function money(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '0.00';
+        }
+
+        return $this->roundMoney((string) $value);
+    }
+
+    protected function roundMoney(string $value): string
+    {
+        if (bccomp($value, '0', 12) >= 0) {
+            return bcadd($value, '0.005', 2);
+        }
+
+        return bcsub($value, '0.005', 2);
+    }
+
+    protected function minMoney(string $left, string $right): string
+    {
+        return bccomp($left, $right, 2) <= 0 ? $left : $right;
+    }
+
+    protected function maxMoney(string $left, string $right): string
+    {
+        return bccomp($left, $right, 2) >= 0 ? $left : $right;
     }
 }
