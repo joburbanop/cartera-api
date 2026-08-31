@@ -192,13 +192,7 @@ class CascadeCollectionService
 
     private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds = []): EloquentCollection
     {
-        $selectedIds = array_values(array_unique(array_filter(array_map('intval', $selectedInstallmentIds), fn ($id) => $id > 0)));
-
-        return $this->allocator->pendingInstallments(
-            $contract,
-            [],
-            $selectedIds,
-        );
+        return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds);
     }
 
     private function normalizeMoney(string $value): string

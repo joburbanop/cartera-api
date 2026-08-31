@@ -227,13 +227,24 @@ class RegularPaymentService
                 $paymentForTarget,
                 $dto->transactionDate,
             );
-        }
+        } else {
+            $toProcess = $this->allocator->resolveInstallmentsToProcess(
+                $contract,
+                [(int) $plan->id],
+            );
+            $prior = $toProcess->filter(
+                fn (AmortizationInstallment $row) => (int) $row->id !== (int) $plan->id,
+            );
 
-        $impact = $this->calculatePaymentImpact(
-            $plan,
-            $paymentForTarget,
-            $contract
-        );
+            if ($prior->isNotEmpty()) {
+                $settled = $this->allocator->cascadeToInstallments(
+                    $prior,
+                    $paymentForTarget,
+                    $dto->transactionDate,
+                );
+                $paymentForTarget = $settled['remaining'];
+            }
+        }
 
         $transaction = Transaction::create([
             'contract_id' => $contract->id,
@@ -254,9 +265,15 @@ class RegularPaymentService
             ]);
         }
 
-        if ($this->hasExtraordinaryOption($dto) && bccomp($paymentForTarget, '0.00', 2) <= 0) {
+        if (bccomp($paymentForTarget, '0.00', 2) <= 0) {
             return $transaction;
         }
+
+        $impact = $this->calculatePaymentImpact(
+            $plan,
+            $paymentForTarget,
+            $contract
+        );
 
         $projectedBalance = (string) ($plan->projected_balance ?? $plan->remaining_balance ?? '0.00');
         $surplus = (string) ($impact['excedente'] ?? '0.00');
@@ -365,7 +382,7 @@ class RegularPaymentService
         if (bccomp($paymentForTarget, (string) ($plan->quota_debt ?? $plan->installment_value ?? '0.00'), 2) < 0) {
             $plan->update([
                 'status' => AmortizationStatus::PARTIAL->value,
-                'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $dto->amount, 2),
+                'quota_debt' => round((float) ($plan->installment_value ?? 0) - (float) $paymentForTarget, 2),
                 'payment_date' => $dto->transactionDate,
                 'interest_paid' => $interestPaid,
                 'principal_paid' => $principalPaid,

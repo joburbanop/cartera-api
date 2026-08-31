@@ -184,6 +184,59 @@ class InstallmentPaymentAllocator
         return $result['remaining'];
     }
 
+    public function resolveInstallmentsToProcess(Contract $contract, array $explicitlySelectedIds): EloquentCollection
+    {
+        $selectedIds = array_values(array_unique(array_filter(
+            array_map('intval', $explicitlySelectedIds),
+            fn (int $id) => $id > 0,
+        )));
+
+        $overdue = $this->unpaidOverdueInstallments($contract);
+        $overdueIds = $overdue->map(fn (AmortizationInstallment $row) => (int) $row->id)->all();
+
+        $selected = new EloquentCollection();
+
+        if ($selectedIds !== []) {
+            $byId = $contract->amortizationInstallments()
+                ->where('installment_number', '>', 0)
+                ->whereIn('id', $selectedIds)
+                ->get()
+                ->keyBy(fn (AmortizationInstallment $row) => (int) $row->id);
+
+            foreach ($selectedIds as $id) {
+                if (in_array($id, $overdueIds, true)) {
+                    continue;
+                }
+
+                $row = $byId->get($id);
+                if ($row instanceof AmortizationInstallment) {
+                    $selected->push($row);
+                }
+            }
+        }
+
+        return $overdue->values()->concat($selected)->values();
+    }
+
+    public function unpaidOverdueInstallments(Contract $contract): EloquentCollection
+    {
+        $today = now()->toDateString();
+
+        return $contract->amortizationInstallments()
+            ->where('installment_number', '>', 0)
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->where(function ($query) use ($today) {
+                $query->where('status', AmortizationStatus::OVERDUE->value)
+                    ->orWhere(function ($inner) use ($today) {
+                        $inner->where('quota_debt', '>', 0)
+                            ->whereDate('due_date', '<', $today);
+                    });
+            })
+            ->orderBy('due_date', 'asc')
+            ->orderBy('installment_number', 'asc')
+            ->get();
+    }
+
     public function pendingInstallments(
         Contract $contract,
         array $excludeIds = [],
