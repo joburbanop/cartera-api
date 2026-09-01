@@ -17,7 +17,7 @@ class DashboardMetricsService
     {
         $installments = AmortizationInstallment::query()
             ->where('installment_number', '>', 0)
-            ->whereDate('due_date', '<', Carbon::today())
+            ->whereDate('due_date', '<=', Carbon::today())
             ->where('status', '!=', AmortizationStatus::PAID->value)
             ->get(['quota_debt', 'installment_value', 'interest_paid', 'principal_paid']);
 

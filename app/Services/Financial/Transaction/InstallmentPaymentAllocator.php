@@ -229,7 +229,7 @@ class InstallmentPaymentAllocator
                 $query->where('status', AmortizationStatus::OVERDUE->value)
                     ->orWhere(function ($inner) use ($today) {
                         $inner->where('quota_debt', '>', 0)
-                            ->whereDate('due_date', '<', $today);
+                            ->whereDate('due_date', '<=', $today);
                     });
             })
             ->orderBy('due_date', 'asc')
@@ -280,7 +280,7 @@ class InstallmentPaymentAllocator
             return AmortizationStatus::OVERDUE;
         }
 
-        return Carbon::parse($dueDate)->startOfDay()->lt(now()->startOfDay())
+        return Carbon::parse($dueDate)->startOfDay()->lte(now()->startOfDay())
             ? AmortizationStatus::OVERDUE
             : AmortizationStatus::PARTIAL;
     }

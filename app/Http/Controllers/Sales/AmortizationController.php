@@ -2,13 +2,18 @@
 
 namespace App\Http\Controllers\Sales;
 
+use App\Enums\AmortizationStatus;
 use App\Http\Controllers\Controller;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Traits\ApiResponse;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 class AmortizationController extends Controller
@@ -76,5 +81,49 @@ class AmortizationController extends Controller
         $label = $type === 'client' ? 'cliente' : 'interno';
 
         return $pdf->download(sprintf('extracto-amortizacion-%s-v1.pdf', $label));
+    }
+
+    public function updateInstallmentDueDate(
+        Contract $contract,
+        AmortizationInstallment $installment,
+        Request $request,
+    ): JsonResponse {
+        if ((int) $installment->contract_id !== (int) $contract->id) {
+            abort(404);
+        }
+
+        if ((int) $installment->installment_number <= 0) {
+            throw ValidationException::withMessages([
+                'installment' => 'La cuota inicial no se puede modificar desde este flujo.',
+            ]);
+        }
+
+        $status = $installment->status instanceof AmortizationStatus
+            ? $installment->status->value
+            : (string) $installment->status;
+
+        if ($status === AmortizationStatus::PAID->value) {
+            throw ValidationException::withMessages([
+                'installment' => 'No se puede modificar la fecha de una cuota ya pagada.',
+            ]);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'due_date' => ['required', 'date'],
+        ]);
+        $validated = $validator->validate();
+
+        $newDueDate = Carbon::parse((string) $validated['due_date'])->startOfDay();
+
+        // TODO(bitácora): registrar aquí quién cambió la fecha, cuándo, y el valor anterior/nuevo,
+        // cuando se construya el sistema de auditoría (Entrega 2).
+        $installment->update([
+            'due_date' => $newDueDate->toDateString(),
+        ]);
+
+        return $this->successResponse(
+            $installment->fresh(),
+            'Fecha de vencimiento actualizada exitosamente.'
+        );
     }
 }
