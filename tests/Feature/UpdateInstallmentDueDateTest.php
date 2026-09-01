@@ -109,26 +109,18 @@ class UpdateInstallmentDueDateTest extends TestCase
         $this->assertSame('2027-05-15', $this->installment3->fresh()->due_date->toDateString());
     }
 
-    public function test_rechaza_si_la_fecha_es_igual_o_anterior_a_la_cuota_anterior(): void
+    public function test_permite_una_fecha_fuera_de_orden_respecto_a_las_cuotas_vecinas(): void
     {
         $response = $this->patchJson(
             "/api/contracts/{$this->contract->id}/installments/{$this->installment2->id}/due-date",
-            ['due_date' => '2027-03-05'],
+            ['due_date' => '2027-06-10'],
         );
 
-        $response->assertUnprocessable()
-            ->assertJsonPath('errors.due_date.0', 'La fecha debe estar entre el 05/03/2027 y el 05/05/2027.');
-    }
+        $response->assertOk()
+            ->assertJsonPath('data.id', $this->installment2->id)
+            ->assertJsonPath('data.due_date', fn ($value) => is_string($value) && str_starts_with($value, '2027-06-10'));
 
-    public function test_rechaza_si_la_fecha_es_igual_o_posterior_a_la_cuota_siguiente(): void
-    {
-        $response = $this->patchJson(
-            "/api/contracts/{$this->contract->id}/installments/{$this->installment2->id}/due-date",
-            ['due_date' => '2027-05-05'],
-        );
-
-        $response->assertUnprocessable()
-            ->assertJsonPath('errors.due_date.0', 'La fecha debe estar entre el 05/03/2027 y el 05/05/2027.');
+        $this->assertSame('2027-06-10', $this->installment2->fresh()->due_date->toDateString());
     }
 
     public function test_rechaza_si_la_cuota_ya_esta_pagada(): void

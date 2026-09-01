@@ -117,46 +117,6 @@ class AmortizationController extends Controller
         $newDueDate = Carbon::parse((string) $validated['due_date'])->startOfDay();
         $number = (int) $installment->installment_number;
 
-        $previousInstallment = $number > 1
-            ? $contract->amortizationInstallments()
-                ->where('installment_number', $number - 1)
-                ->first()
-            : null;
-
-        $nextInstallment = $contract->amortizationInstallments()
-            ->where('installment_number', $number + 1)
-            ->first();
-
-        if ($previousInstallment && $newDueDate->lte(Carbon::parse((string) $previousInstallment->due_date)->startOfDay())) {
-            throw ValidationException::withMessages([
-                'due_date' => $nextInstallment
-                    ? sprintf(
-                        'La fecha debe estar entre el %s y el %s.',
-                        Carbon::parse((string) $previousInstallment->due_date)->format('d/m/Y'),
-                        Carbon::parse((string) $nextInstallment->due_date)->format('d/m/Y'),
-                    )
-                    : sprintf(
-                        'La fecha debe ser posterior al %s.',
-                        Carbon::parse((string) $previousInstallment->due_date)->format('d/m/Y'),
-                    ),
-            ]);
-        }
-
-        if ($nextInstallment && $newDueDate->gte(Carbon::parse((string) $nextInstallment->due_date)->startOfDay())) {
-            throw ValidationException::withMessages([
-                'due_date' => $previousInstallment
-                    ? sprintf(
-                        'La fecha debe estar entre el %s y el %s.',
-                        Carbon::parse((string) $previousInstallment->due_date)->format('d/m/Y'),
-                        Carbon::parse((string) $nextInstallment->due_date)->format('d/m/Y'),
-                    )
-                    : sprintf(
-                        'La fecha debe ser anterior al %s.',
-                        Carbon::parse((string) $nextInstallment->due_date)->format('d/m/Y'),
-                    ),
-            ]);
-        }
-
         $installment->update([
             'due_date' => $newDueDate->toDateString(),
         ]);
