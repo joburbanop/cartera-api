@@ -3,11 +3,16 @@
 namespace App\Observers;
 
 use App\Models\Transaction;
+use Illuminate\Support\Facades\Schema;
 
 class TransactionObserver
 {
     public function created(Transaction $transaction): void
     {
+        if (! Schema::hasTable('activity_log')) {
+            return;
+        }
+
         $contract = $transaction->contract;
         if (! $contract) {
             return;

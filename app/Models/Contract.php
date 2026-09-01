@@ -7,14 +7,18 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 use App\Enums\ContractStatus;
-use Spatie\Activitylog\LogOptions;
-use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 
 class Contract extends Model
 {
-    use HasFactory, SoftDeletes, LogsActivity;
+    use HasFactory, SoftDeletes;
+    use LogsActivity {
+        shouldLogEvent as protected spatieShouldLogEvent;
+    }
 
     protected $fillable = [
         'contract_number',
@@ -113,5 +117,10 @@ class Contract extends Model
                 'deleted' => 'Eliminó contrato',
                 default => $eventName,
             });
+    }
+
+    protected function shouldLogEvent(string $eventName): bool
+    {
+        return Schema::hasTable('activity_log') && $this->spatieShouldLogEvent($eventName);
     }
 }

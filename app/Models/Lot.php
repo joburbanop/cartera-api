@@ -8,12 +8,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Spatie\Activitylog\LogOptions;
-use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Support\Facades\Schema;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class Lot extends Model
 {
-    use HasFactory, SoftDeletes, LogsActivity;
+    use HasFactory, SoftDeletes;
+    use LogsActivity {
+        shouldLogEvent as protected spatieShouldLogEvent;
+    }
 
     protected $fillable = [
         'project_id',
@@ -95,5 +99,10 @@ class Lot extends Model
                 'deleted' => 'Eliminó lote',
                 default => $eventName,
             });
+    }
+
+    protected function shouldLogEvent(string $eventName): bool
+    {
+        return Schema::hasTable('activity_log') && $this->spatieShouldLogEvent($eventName);
     }
 }

@@ -43,6 +43,7 @@ class ActivityController extends Controller
             ->where('subject_type', $subject::class)
             ->where('subject_id', $subject->getKey())
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->get()
             ->map(function (Activity $activity) {
                 $properties = $activity->properties?->toArray() ?? [];

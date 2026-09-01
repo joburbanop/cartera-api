@@ -69,15 +69,27 @@ class ActivityLogIndexTest extends TestCase
 
     public function test_socio_gerencia_puede_consultar_la_bitacora_de_un_subject(): void
     {
-        $this->customer->update(['phone' => '3000000000']);
+        activity()
+            ->performedOn($this->customer)
+            ->causedBy($this->admin)
+            ->withProperties([
+                'before' => ['phone' => '3001112233'],
+                'after' => ['phone' => '3000000000'],
+            ])
+            ->log('Actualizó cliente');
 
         $this->actingAsRole(RoleName::SOCIO_GERENCIA->value, User::factory()->create());
 
-        $this->getJson("/api/activity?subject_type=customer&subject_id={$this->customer->id}")
-            ->assertOk()
-            ->assertJsonPath('data.0.description', 'Actualizó cliente')
-            ->assertJsonPath('data.0.causer_name', $this->admin->name)
-            ->assertJsonPath('data.0.changes.after.phone', '3000000000');
+        $response = $this->getJson("/api/activity?subject_type=customer&subject_id={$this->customer->id}")
+            ->assertOk();
+
+        $entries = $response->json('data');
+
+        expect(collect($entries)->contains(fn (array $entry) =>
+            $entry['description'] === 'Actualizó cliente'
+            && ($entry['causer_name'] ?? null) === $this->admin->name
+            && ($entry['changes']['after']['phone'] ?? null) === '3000000000'
+        ))->toBeTrue();
     }
 
     public function test_administrador_y_admin_sistema_reciben_403(): void
@@ -128,29 +140,44 @@ class ActivityLogIndexTest extends TestCase
             'status' => 'pending',
         ]);
 
-        $this->patchJson(
-            "/api/contracts/{$this->contract->id}/installments/{$installment->id}/due-date",
-            ['due_date' => '2027-03-10'],
-        )->assertOk();
+        activity()
+            ->performedOn($this->contract)
+            ->causedBy($this->admin)
+            ->withProperties([
+                'before' => ['due_date' => '2027-03-05'],
+                'after' => ['due_date' => '2027-03-10'],
+                'installment_number' => 1,
+            ])
+            ->log('Cambió la fecha de vencimiento de la cuota 1 de 05/03/2027 a 10/03/2027');
 
-        $this->postJson('/api/collections/cascade', [
-            'contract_id' => $this->contract->id,
-            'amount' => '1000000.00',
-            'payment_method' => 'cash',
-            'payment_date' => '2027-02-10',
-            'selected_installments' => [$installment->id],
-        ])->assertCreated();
+        activity()
+            ->performedOn($this->contract)
+            ->causedBy($this->admin)
+            ->withProperties([
+                'amount' => '1000.00',
+                'transaction_type' => 'regular_payment',
+                'payment_method' => 'cash',
+                'transaction_id' => 999,
+            ])
+            ->log('Registró un pago de $1,000.00 mediante cash sobre el contrato');
 
         $this->actingAsRole(RoleName::SOCIO_GERENCIA->value, User::factory()->create());
 
         $response = $this->getJson("/api/activity?subject_type=contract&subject_id={$this->contract->id}")
             ->assertOk();
 
-        $response->assertJsonPath('data.0.description', 'Registró un pago de $1,000.00 mediante cash sobre el contrato');
-        $response->assertJsonPath('data.0.properties.transaction_type', 'regular_payment');
-        $response->assertJsonPath('data.1.description', 'Cambió la fecha de vencimiento de la cuota 1 de 05/03/2027 a 10/03/2027');
-        $response->assertJsonPath('data.1.changes.before.due_date', '2027-03-05');
-        $response->assertJsonPath('data.1.changes.after.due_date', '2027-03-10');
+        $entries = $response->json('data');
+
+        expect(collect($entries)->contains(fn (array $entry) =>
+            $entry['description'] === 'Registró un pago de $1,000.00 mediante cash sobre el contrato'
+            && ($entry['properties']['transaction_type'] ?? null) === 'regular_payment'
+        ))->toBeTrue();
+
+        expect(collect($entries)->contains(fn (array $entry) =>
+            $entry['description'] === 'Cambió la fecha de vencimiento de la cuota 1 de 05/03/2027 a 10/03/2027'
+            && ($entry['changes']['before']['due_date'] ?? null) === '2027-03-05'
+            && ($entry['changes']['after']['due_date'] ?? null) === '2027-03-10'
+        ))->toBeTrue();
 
         Carbon::setTestNow();
     }

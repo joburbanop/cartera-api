@@ -6,12 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Spatie\Activitylog\LogOptions;
-use Spatie\Activitylog\Traits\LogsActivity;
+use Illuminate\Support\Facades\Schema;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class Project extends Model
 {
-    use SoftDeletes, LogsActivity; // Activa el borrado lógico (no borra de la DB, solo oculta)
+    use SoftDeletes; // Activa el borrado lógico (no borra de la DB, solo oculta)
+    use LogsActivity {
+        shouldLogEvent as protected spatieShouldLogEvent;
+    }
 
     protected $fillable = [
         'name',
@@ -62,5 +66,10 @@ class Project extends Model
                 'deleted' => 'Eliminó proyecto',
                 default => $eventName,
             });
+    }
+
+    protected function shouldLogEvent(string $eventName): bool
+    {
+        return Schema::hasTable('activity_log') && $this->spatieShouldLogEvent($eventName);
     }
 }
