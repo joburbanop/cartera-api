@@ -132,6 +132,61 @@ class CascadeCollectionService
                 }
             }
 
+            if ($hasExtraordinaryOption && ! $hasExplicitSelection && bccomp($availableAmount, '0.00', 2) > 0) {
+                $implicitTarget = $this->nextNonOverduePendingInstallment(
+                    $contract,
+                    $processedIds,
+                    $effectiveTransactionDate,
+                );
+
+                if (! $implicitTarget) {
+                    throw ValidationException::withMessages([
+                        'amount' => 'La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.',
+                    ]);
+                }
+
+                $targetBalanceDue = $this->normalizeMoney((string) ($implicitTarget->quota_debt ?? $implicitTarget->remaining_balance ?? $implicitTarget->installment_value ?? '0.00'));
+                $targetAmountToDebt = bccomp($availableAmount, $targetBalanceDue, 2) <= 0
+                    ? $availableAmount
+                    : $targetBalanceDue;
+
+                if (bccomp($targetAmountToDebt, '0.00', 2) > 0) {
+                    $targetAllocation = $this->allocator->applyToInstallment(
+                        $implicitTarget,
+                        $targetAmountToDebt,
+                        $effectiveTransactionDate,
+                    );
+
+                    $targetSurplus = $this->normalizeMoney(bcsub($availableAmount, $targetAllocation['applied'], 2));
+                    $targetAmountApplied = $availableAmount;
+
+                    $availableAmount = $this->normalizeMoney(bcsub($availableAmount, $targetAmountApplied, 2));
+                    $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $targetAmountApplied, 2));
+                    $processedIds[] = (int) $implicitTarget->id;
+
+                    if ($this->allocator->leftoverExceedsTolerance($targetSurplus)) {
+                        $this->extraordinaryPaymentService->handle(
+                            $contract,
+                            $implicitTarget->fresh(),
+                            $targetSurplus,
+                            (string) $normalizedPaymentOption,
+                        );
+                    }
+
+                    $implicitTarget->refresh();
+
+                    $appliedInstallments[] = [
+                        'installment_id' => $implicitTarget->id,
+                        'installment_number' => $implicitTarget->installment_number,
+                        'amount_applied' => $targetAmountApplied,
+                        'balance_due' => $this->normalizeMoney((string) ($implicitTarget->quota_debt ?? '0.00')),
+                        'status' => $implicitTarget->status instanceof AmortizationStatus
+                            ? $implicitTarget->status->value
+                            : (string) $implicitTarget->status,
+                    ];
+                }
+            }
+
             if (! $hasExtraordinaryOption && $this->allocator->leftoverExceedsTolerance($availableAmount)) {
                 $cascade = $this->allocator->cascadeToPending(
                     $contract,
@@ -193,6 +248,29 @@ class CascadeCollectionService
     private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds = []): EloquentCollection
     {
         return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds);
+    }
+
+    private function nextNonOverduePendingInstallment(
+        Contract $contract,
+        array $excludeIds,
+        Carbon $transactionDate,
+    ): ?\App\Models\AmortizationInstallment {
+        $query = $contract->amortizationInstallments()
+            ->where('installment_number', '>', 0)
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->where(function ($query) {
+                $query->where('quota_debt', '>', 0)
+                    ->orWhere('remaining_balance', '>', 0);
+            })
+            ->whereDate('due_date', '>', $transactionDate->toDateString())
+            ->orderBy('due_date', 'asc')
+            ->orderBy('installment_number', 'asc');
+
+        if ($excludeIds !== []) {
+            $query->whereNotIn('id', $excludeIds);
+        }
+
+        return $query->first();
     }
 
     private function normalizeMoney(string $value): string
