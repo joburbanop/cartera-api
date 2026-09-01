@@ -40,6 +40,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:projects.view|projects.manage');
     Route::post('/projects', [ProjectController::class, 'store'])
         ->middleware('permission:projects.manage');
+    Route::put('/projects/{project}', [ProjectController::class, 'update'])
+        ->middleware('permission:projects.manage');
+    Route::patch('/projects/{project}/archive', [ProjectController::class, 'archive'])
+        ->middleware('permission:projects.manage');
+    Route::patch('/projects/{project}/activate', [ProjectController::class, 'activate'])
+        ->middleware('permission:projects.manage');
+
+
 
     Route::get('/lots', [LotController::class, 'index'])
         ->middleware('permission:lots.view|lots.manage');

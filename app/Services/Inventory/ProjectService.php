@@ -5,6 +5,8 @@ namespace App\Services\Inventory;
 use App\DTOs\CreateProjectDTO;
 use App\Models\Project;
 use Illuminate\Support\Facades\DB;
+use App\DTOs\UpdateProjectDTO;
+
 
 class ProjectService
 {
@@ -16,11 +18,17 @@ class ProjectService
                 'name' => $dto->name,
                 'location' => $dto->location,
                 'description' => $dto->description,
+                'status' => 'active',
                 'created_by' => $userId,
             ]);
 
             // 2. Enlazar las cuentas bancarias usando la tabla pivote (N:M)
             $project->bankAccounts()->attach($dto->bankAccountIds);
+
+            $project->statusHistory()->create([
+                'status' => 'active',
+                'changed_by' => $userId,
+            ]);
 
             // 3. Retornar el proyecto con sus cuentas cargadas para la respuesta
             return $project->load('bankAccounts');
@@ -68,4 +76,74 @@ class ProjectService
 
         return $projects;
     }
+
+  public function updateProject(Project $project, UpdateProjectDTO $dto, int $userId): Project 
+{
+    return DB::transaction(function () use ($project, $dto, $userId) {
+
+        if ($project->status !== 'active') {
+            throw new \DomainException(
+                'Solo se pueden editar proyectos activos.'
+            );
+        }
+
+        $project->update([
+            'name' => $dto->name,
+            'location' => $dto->location,
+            'description' => $dto->description,
+            'updated_by' => $userId,
+        ]);
+
+        $project->bankAccounts()->sync($dto->bankAccountIds);
+
+        return $project->load('bankAccounts');
+    });
+}
+   public function archiveProject(Project $project, int $userId): Project
+    {
+        return DB::transaction(function () use ($project, $userId) {
+
+            if ($project->status !== 'active') {
+                throw new \DomainException(
+                    'Solo se pueden archivar proyectos activos.'
+                );
+            }
+
+            $project->update([
+                'status' => 'inactive',
+                'updated_by' => $userId,
+            ]);
+
+            $project->statusHistory()->create([
+                'status' => 'inactive',
+                'changed_by' => $userId,
+            ]);
+
+            return $project->load('bankAccounts');
+        });
+    }
+    public function activateProject(Project $project, int $userId): Project
+    {
+        return DB::transaction(function () use ($project, $userId) {
+
+            if ($project->status !== 'inactive') {
+                throw new \DomainException(
+                    'Solo se pueden activar proyectos archivados.'
+                );
+            }
+
+            $project->update([
+                'status' => 'active',
+                'updated_by' => $userId,
+            ]);
+
+            $project->statusHistory()->create([
+                'status' => 'active',
+                'changed_by' => $userId,
+            ]);
+
+            return $project->load('bankAccounts');
+        });
+    }
+
 }

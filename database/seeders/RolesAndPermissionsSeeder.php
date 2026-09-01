@@ -21,6 +21,8 @@ class RolesAndPermissionsSeeder extends Seeder
             Permission::findOrCreate($permission->value, 'web');
         }
 
+        app()[PermissionRegistrar::class]->forgetCachedPermissions();
+
         $socio = Role::findOrCreate(RoleName::SOCIO_GERENCIA->value, 'web');
         $socio->syncPermissions(array_map(
             static fn (PermissionName $permission): string => $permission->value,
