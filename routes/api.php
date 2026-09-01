@@ -7,6 +7,7 @@ use App\Http\Controllers\ContractPaymentPromiseController;
 use App\Http\Controllers\CRM\CustomerController;
 use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Financial\BankAccountController;
+use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Inventory\LotController;
 use App\Http\Controllers\Inventory\ProjectController;
 use App\Http\Controllers\SearchController;
@@ -26,6 +27,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/search', [SearchController::class, 'index']);
+    Route::get('/activity', [ActivityController::class, 'index'])
+        ->middleware('permission:bitacora.view');
 
     Route::get('/dashboard/cartera-mora', [DashboardController::class, 'carteraMora'])
         ->middleware('permission:amortization.view|contracts.manage');

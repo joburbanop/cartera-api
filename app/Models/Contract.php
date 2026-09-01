@@ -8,11 +8,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Enums\ContractStatus;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 
 class Contract extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, LogsActivity;
 
     protected $fillable = [
         'contract_number',
@@ -82,5 +84,34 @@ class Contract extends Model
     public function paymentPromises(): HasMany
     {
         return $this->hasMany(ContractPaymentPromise::class)->orderBy('payment_number', 'asc');
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('contrato')
+            ->logOnly([
+                'contract_number',
+                'customer_id',
+                'lot_id',
+                'seller_name',
+                'sale_price',
+                'down_payment_pactada',
+                'term_months',
+                'interest_rate',
+                'start_date',
+                'initial_payment_date',
+                'first_installment_date',
+                'regular_payment_start_date',
+                'preventa_installments_count',
+                'status',
+            ])
+            ->logOnlyDirty()
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => 'Creó contrato',
+                'updated' => 'Actualizó contrato',
+                'deleted' => 'Eliminó contrato',
+                default => $eventName,
+            });
     }
 }

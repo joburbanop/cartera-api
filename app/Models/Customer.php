@@ -8,10 +8,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Customer extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, LogsActivity;
 
     protected $fillable = [
         'document_type',
@@ -77,5 +79,27 @@ class Customer extends Model
                 'preventa',
             ])
             ->latest();
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('cliente')
+            ->logOnly([
+                'document_type',
+                'document_number',
+                'name',
+                'phone',
+                'email',
+                'address',
+                'city',
+            ])
+            ->logOnlyDirty()
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => 'Creó cliente',
+                'updated' => 'Actualizó cliente',
+                'deleted' => 'Eliminó cliente',
+                default => $eventName,
+            });
     }
 }

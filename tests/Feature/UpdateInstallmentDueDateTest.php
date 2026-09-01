@@ -11,7 +11,6 @@ use App\Models\Lot;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Testing\Fluent\AssertableJson;
 use Tests\TestCase;
 
 class UpdateInstallmentDueDateTest extends TestCase
@@ -97,10 +96,7 @@ class UpdateInstallmentDueDateTest extends TestCase
 
         $responseOverdue->assertOk()
             ->assertJsonPath('data.id', $this->installment2->id)
-            ->assertJson(fn (AssertableJson $json) => $json
-                ->where('data.due_date', fn ($value) => is_string($value) && str_starts_with($value, '2027-04-10'))
-                ->etc()
-            );
+            ->assertJsonPath('data.due_date', fn ($value) => is_string($value) && str_starts_with($value, '2027-04-10'));
 
         $responsePending = $this->patchJson(
             "/api/contracts/{$this->contract->id}/installments/{$this->installment3->id}/due-date",
@@ -113,19 +109,26 @@ class UpdateInstallmentDueDateTest extends TestCase
         $this->assertSame('2027-05-15', $this->installment3->fresh()->due_date->toDateString());
     }
 
-    public function test_permite_una_fecha_fuera_de_orden_respecto_a_las_cuotas_vecinas(): void
+    public function test_rechaza_si_la_fecha_es_igual_o_anterior_a_la_cuota_anterior(): void
     {
         $response = $this->patchJson(
-            "/api/contracts/{$this->contract->id}/installments/{$this->installment3->id}/due-date",
-            ['due_date' => '2027-03-20'],
+            "/api/contracts/{$this->contract->id}/installments/{$this->installment2->id}/due-date",
+            ['due_date' => '2027-03-05'],
         );
 
-        $response->assertOk()
-            ->assertJsonPath('data.id', $this->installment3->id);
+        $response->assertUnprocessable()
+            ->assertJsonPath('errors.due_date.0', 'La fecha debe estar entre el 05/03/2027 y el 05/05/2027.');
+    }
 
-        $this->assertSame('2027-03-20', $this->installment3->fresh()->due_date->toDateString());
-        $this->assertSame('2027-04-05', $this->installment2->fresh()->due_date->toDateString());
-        $this->assertSame('2027-03-05', $this->installment1->fresh()->due_date->toDateString());
+    public function test_rechaza_si_la_fecha_es_igual_o_posterior_a_la_cuota_siguiente(): void
+    {
+        $response = $this->patchJson(
+            "/api/contracts/{$this->contract->id}/installments/{$this->installment2->id}/due-date",
+            ['due_date' => '2027-05-05'],
+        );
+
+        $response->assertUnprocessable()
+            ->assertJsonPath('errors.due_date.0', 'La fecha debe estar entre el 05/03/2027 y el 05/05/2027.');
     }
 
     public function test_rechaza_si_la_cuota_ya_esta_pagada(): void

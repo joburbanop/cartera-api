@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\Transaction;
+use App\Observers\TransactionObserver;
 use App\Services\Collection\CascadeCollectionService;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
@@ -26,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Transaction::observe(TransactionObserver::class);
+
         // Interceptamos la validación del Token
         Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, $isValid) {
             if (!$isValid) {
