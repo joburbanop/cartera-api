@@ -38,6 +38,16 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:amortization.view|contracts.manage');
     Route::get('/dashboard/actividad-reciente', [DashboardController::class, 'actividadReciente'])
         ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/clientes-totales', [DashboardController::class, 'clientesTotales'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/recaudo-mensual', [DashboardController::class, 'recaudoMensual'])
+        ->middleware('permission:transactions.view|payments.register');
+    Route::get('/dashboard/cartera-vencida-resumen', [DashboardController::class, 'carteraVencidaResumen'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/dashboard/contratos-por-estado', [DashboardController::class, 'contratosPorEstado'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/lotes-por-estado', [DashboardController::class, 'lotesPorEstado'])
+        ->middleware('permission:lots.view|lots.manage');
 
     Route::get('/projects', [ProjectController::class, 'index'])
         ->middleware('permission:projects.view|projects.manage');

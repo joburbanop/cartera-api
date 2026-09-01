@@ -5,20 +5,22 @@ declare(strict_types=1);
 namespace App\Services\Dashboard;
 
 use App\Enums\AmortizationStatus;
+use App\Enums\ContractStatus;
+use App\Enums\LotStatus;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Models\Customer;
+use App\Models\Lot;
 use App\Models\Transaction;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 class DashboardMetricsService
 {
     public function carteraEnMora(): array
     {
-        $installments = AmortizationInstallment::query()
-            ->where('installment_number', '>', 0)
-            ->whereDate('due_date', '<=', Carbon::today())
-            ->where('status', '!=', AmortizationStatus::PAID->value)
+        $installments = $this->cuotasVencidasQuery()
             ->get(['quota_debt', 'installment_value', 'interest_paid', 'principal_paid']);
 
         $total = '0.00';
@@ -125,6 +127,121 @@ class DashboardMetricsService
         });
 
         return array_values(array_slice($items, 0, $limite));
+    }
+
+    public function clientesTotales(): array
+    {
+        return [
+            'total_clientes' => Customer::query()->count(),
+        ];
+    }
+
+    /**
+     * @return list<array{mes: string, total: string}>
+     */
+    public function recaudoMensual(): array
+    {
+        $start = Carbon::today()->startOfMonth()->subMonths(11);
+        $end = Carbon::today()->endOfMonth();
+
+        $totals = [];
+
+        for ($offset = 11; $offset >= 0; $offset--) {
+            $totals[Carbon::today()->startOfMonth()->subMonths($offset)->format('Y-m')] = '0.00';
+        }
+
+        $transactions = Transaction::query()
+            ->whereDate('transaction_date', '>=', $start)
+            ->whereDate('transaction_date', '<=', $end)
+            ->get(['amount', 'transaction_date']);
+
+        foreach ($transactions as $transaction) {
+            $mes = optional($transaction->transaction_date)?->format('Y-m');
+
+            if ($mes === null || ! array_key_exists($mes, $totals)) {
+                continue;
+            }
+
+            $totals[$mes] = bcadd($totals[$mes], $this->money($transaction->amount), 2);
+        }
+
+        $series = [];
+
+        foreach ($totals as $mes => $total) {
+            $series[] = [
+                'mes' => $mes,
+                'total' => number_format((float) $total, 2, '.', ''),
+            ];
+        }
+
+        return $series;
+    }
+
+    /**
+     * @return array{vencidas: int, al_dia: int}
+     */
+    public function carteraVencidaResumen(): array
+    {
+        $vencidas = $this->cuotasVencidasQuery()->count();
+
+        $alDia = AmortizationInstallment::query()
+            ->where('installment_number', '>', 0)
+            ->where(function (Builder $query): void {
+                $query->whereDate('due_date', '>', Carbon::today())
+                    ->orWhere('status', AmortizationStatus::PAID->value);
+            })
+            ->count();
+
+        return [
+            'vencidas' => $vencidas,
+            'al_dia' => $alDia,
+        ];
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public function contratosPorEstado(): array
+    {
+        $counts = Contract::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $result = [];
+
+        foreach (ContractStatus::cases() as $status) {
+            $result[$status->value] = (int) ($counts[$status->value] ?? 0);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public function lotesPorEstado(): array
+    {
+        $counts = Lot::query()
+            ->selectRaw('status, COUNT(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+
+        $result = [];
+
+        foreach (LotStatus::cases() as $status) {
+            $result[$status->value] = (int) ($counts[$status->value] ?? 0);
+        }
+
+        return $result;
+    }
+
+    private function cuotasVencidasQuery(): Builder
+    {
+        return AmortizationInstallment::query()
+            ->where('installment_number', '>', 0)
+            ->whereDate('due_date', '<=', Carbon::today())
+            ->where('status', '!=', AmortizationStatus::PAID->value);
     }
 
     private function deudaCuota(AmortizationInstallment $installment): string
