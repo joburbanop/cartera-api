@@ -15,13 +15,17 @@ class RolesAndPermissionsSeeder extends Seeder
 {
     public function run(): void
     {
-        app()[PermissionRegistrar::class]->forgetCachedPermissions();
+        $permissionRegistrar = app(PermissionRegistrar::class);
+        $permissionRegistrar->forgetCachedPermissions();
 
         foreach (PermissionName::all() as $permission) {
-            Permission::findOrCreate($permission->value, 'web');
+            Permission::query()->firstOrCreate([
+                'name' => $permission->value,
+                'guard_name' => 'web',
+            ]);
         }
 
-        app()[PermissionRegistrar::class]->forgetCachedPermissions();
+        $permissionRegistrar->forgetCachedPermissions();
 
         $socio = Role::findOrCreate(RoleName::SOCIO_GERENCIA->value, 'web');
         $socio->syncPermissions(array_map(

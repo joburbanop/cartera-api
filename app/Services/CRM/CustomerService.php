@@ -51,7 +51,7 @@ class CustomerService
             'activeContracts.lot',
             'activeContracts.installments' => function ($query) {
                 $query->whereNotIn('status', [AmortizationStatus::PAID->value])
-                    ->whereDate('due_date', '<', now());
+                    ->whereDate('due_date', '<=', now());
             },
         ];
     }

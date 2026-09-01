@@ -48,4 +48,44 @@ class DashboardController extends Controller
             'Actividad reciente obtenida exitosamente.'
         );
     }
+
+    public function clientesTotales(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->clientesTotales(),
+            'Resumen de clientes obtenido exitosamente.'
+        );
+    }
+
+    public function recaudoMensual(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->recaudoMensual(),
+            'Recaudo mensual obtenido exitosamente.'
+        );
+    }
+
+    public function carteraVencidaResumen(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->carteraVencidaResumen(),
+            'Resumen de cartera vencida obtenido exitosamente.'
+        );
+    }
+
+    public function contratosPorEstado(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->contratosPorEstado(),
+            'Contratos por estado obtenidos exitosamente.'
+        );
+    }
+
+    public function lotesPorEstado(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->lotesPorEstado(),
+            'Lotes por estado obtenidos exitosamente.'
+        );
+    }
 }

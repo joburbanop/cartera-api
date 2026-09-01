@@ -8,10 +8,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class Lot extends Model
 {
     use HasFactory, SoftDeletes;
+    use LogsActivity {
+        shouldLogEvent as protected spatieShouldLogEvent;
+    }
 
     protected $fillable = [
         'project_id',
@@ -65,5 +71,38 @@ class Lot extends Model
     public function deleter(): BelongsTo
     {
         return $this->belongsTo(User::class, 'deleted_by');
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('lote')
+            ->logOnly([
+                'project_id',
+                'number',
+                'area_m2',
+                'price_m2',
+                'list_price',
+                'status',
+                'type',
+                'folio_matricula',
+                'ficha_catastral',
+                'boundaries_north',
+                'boundaries_south',
+                'boundaries_east',
+                'boundaries_west',
+            ])
+            ->logOnlyDirty()
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => 'Creó lote',
+                'updated' => 'Actualizó lote',
+                'deleted' => 'Eliminó lote',
+                default => $eventName,
+            });
+    }
+
+    protected function shouldLogEvent(string $eventName): bool
+    {
+        return Schema::hasTable('activity_log') && $this->spatieShouldLogEvent($eventName);
     }
 }

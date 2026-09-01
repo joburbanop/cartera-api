@@ -7,6 +7,7 @@ use App\Http\Controllers\ContractPaymentPromiseController;
 use App\Http\Controllers\CRM\CustomerController;
 use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Financial\BankAccountController;
+use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Inventory\LotController;
 use App\Http\Controllers\Inventory\ProjectController;
 use App\Http\Controllers\SearchController;
@@ -26,6 +27,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/search', [SearchController::class, 'index']);
+    Route::get('/activity', [ActivityController::class, 'index'])
+        ->middleware('permission:bitacora.view');
 
     Route::get('/dashboard/cartera-mora', [DashboardController::class, 'carteraMora'])
         ->middleware('permission:amortization.view|contracts.manage');
@@ -35,6 +38,16 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:amortization.view|contracts.manage');
     Route::get('/dashboard/actividad-reciente', [DashboardController::class, 'actividadReciente'])
         ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/clientes-totales', [DashboardController::class, 'clientesTotales'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/recaudo-mensual', [DashboardController::class, 'recaudoMensual'])
+        ->middleware('permission:transactions.view|payments.register');
+    Route::get('/dashboard/cartera-vencida-resumen', [DashboardController::class, 'carteraVencidaResumen'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/dashboard/contratos-por-estado', [DashboardController::class, 'contratosPorEstado'])
+        ->middleware('permission:contracts.view|contracts.manage');
+    Route::get('/dashboard/lotes-por-estado', [DashboardController::class, 'lotesPorEstado'])
+        ->middleware('permission:lots.view|lots.manage');
 
     Route::get('/projects', [ProjectController::class, 'index'])
         ->middleware('permission:projects.view|projects.manage');
@@ -71,6 +84,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf'])
         ->middleware('permission:amortization.view|contracts.manage');
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate'])
+        ->middleware('permission:contracts.manage');
+    Route::patch('/contracts/{contract}/installments/{installment}/due-date', [AmortizationController::class, 'updateInstallmentDueDate'])
         ->middleware('permission:contracts.manage');
 
     Route::get('/transactions', [TransactionController::class, 'index'])

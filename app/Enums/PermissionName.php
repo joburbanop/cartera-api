@@ -11,6 +11,7 @@ enum PermissionName: string
     case CONTRACTS_VIEW = 'contracts.view';
     case AMORTIZATION_VIEW = 'amortization.view';
     case TRANSACTIONS_VIEW = 'transactions.view';
+    case BITACORA_VIEW = 'bitacora.view';
 
     case USERS_MANAGE = 'users.manage';
     case ROLES_MANAGE = 'roles.manage';
@@ -36,6 +37,7 @@ enum PermissionName: string
             self::CONTRACTS_VIEW,
             self::AMORTIZATION_VIEW,
             self::TRANSACTIONS_VIEW,
+            self::BITACORA_VIEW,
         ];
     }
 
