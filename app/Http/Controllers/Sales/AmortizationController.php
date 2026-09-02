@@ -12,6 +12,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
@@ -46,11 +47,12 @@ class AmortizationController extends Controller
 
             return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
         } catch (\Exception $e) {
-            \Log::error('Error consultando amortización para contrato ' . $contract->id . ': ' . $e->getMessage());
+            Log::error('Error consultando amortización para contrato '.$contract->id.': '.$e->getMessage());
 
             return response()->json([
-                'error' => 'Falla interna al consultar el plan de amortización.',
-                'details' => $e->getMessage(),
+                'status' => 'error',
+                'message' => 'Ocurrió un error al procesar la solicitud',
+                'errors' => null,
             ], 500);
         }
     }

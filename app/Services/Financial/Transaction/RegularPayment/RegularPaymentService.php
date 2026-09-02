@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Support\SafeUploadedFileName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -260,7 +261,7 @@ class RegularPaymentService
             Receipt::create([
                 'transaction_id' => $transaction->id,
                 'file_path' => $path,
-                'file_name' => $dto->receipt->getClientOriginalName(),
+                    'file_name' => SafeUploadedFileName::forReceipt($dto->receipt),
                 'file_type' => $dto->receipt->getClientMimeType(),
             ]);
         }

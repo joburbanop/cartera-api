@@ -30,11 +30,9 @@ class LotController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        // Capturamos el project_id de la URL si existe (ej: /api/lots?project_id=1)
         $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
-
-        // Llamamos al servicio
-        $lots = $this->lotService->getAllLots($projectId);
+        $perPage = min(100, max(1, (int) $request->integer('per_page', 20)));
+        $lots = $this->lotService->getAllLots($projectId, $perPage);
 
         return $this->successResponse($lots, 'Lista de lotes obtenida exitosamente.');
     }

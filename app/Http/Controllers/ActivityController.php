@@ -38,33 +38,35 @@ class ActivityController extends Controller
         $modelClass = self::SUBJECT_MAP[$validated['subject_type']];
         $subject = $modelClass::query()->findOrFail((int) $validated['subject_id']);
 
-        $activities = Activity::query()
+        $perPage = min(100, max(1, (int) $request->integer('per_page', 20)));
+
+        $paginator = Activity::query()
             ->with('causer')
             ->where('subject_type', $subject::class)
             ->where('subject_id', $subject->getKey())
             ->orderByDesc('created_at')
             ->orderByDesc('id')
-            ->get()
-            ->map(function (Activity $activity) {
-                $properties = $activity->properties?->toArray() ?? [];
-                $before = $properties['old'] ?? $properties['before'] ?? [];
-                $after = $properties['attributes'] ?? $properties['after'] ?? [];
-                unset($properties['old'], $properties['before'], $properties['attributes'], $properties['after']);
+            ->paginate($perPage);
 
-                return [
-                    'id' => $activity->id,
-                    'date' => $activity->created_at?->toIso8601String(),
-                    'description' => $activity->description,
-                    'causer_name' => $activity->causer?->name ?? 'Sistema',
-                    'changes' => [
-                        'before' => (object) $before,
-                        'after' => (object) $after,
-                    ],
-                    'properties' => (object) $properties,
-                ];
-            })
-            ->values();
+        $paginator->getCollection()->transform(function (Activity $activity) {
+            $properties = $activity->properties?->toArray() ?? [];
+            $before = $properties['old'] ?? $properties['before'] ?? [];
+            $after = $properties['attributes'] ?? $properties['after'] ?? [];
+            unset($properties['old'], $properties['before'], $properties['attributes'], $properties['after']);
 
-        return $this->successResponse($activities, 'Bitácora obtenida exitosamente.');
+            return [
+                'id' => $activity->id,
+                'date' => $activity->created_at?->toIso8601String(),
+                'description' => $activity->description,
+                'causer_name' => $activity->causer?->name ?? 'Sistema',
+                'changes' => [
+                    'before' => (object) $before,
+                    'after' => (object) $after,
+                ],
+                'properties' => (object) $properties,
+            ];
+        });
+
+        return $this->successResponse($paginator, 'Bitácora obtenida exitosamente.');
     }
 }

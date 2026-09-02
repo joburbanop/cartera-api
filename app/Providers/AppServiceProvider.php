@@ -8,6 +8,9 @@ use App\Services\Collection\CascadeCollectionService;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -28,6 +31,24 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        RateLimiter::for('login', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email')));
+
+            return Limit::perMinute(5)
+                ->by($email.'|'.$request->ip())
+                ->response(function (Request $request, array $headers) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Demasiados intentos, espera un momento',
+                        'errors' => null,
+                    ], 429)->withHeaders($headers);
+                });
+        });
+
+        RateLimiter::for('writes', function (Request $request) {
+            return Limit::perMinute(60)->by((string) ($request->user()?->id ?: $request->ip()));
+        });
+
         Transaction::observe(TransactionObserver::class);
 
         // Interceptamos la validación del Token

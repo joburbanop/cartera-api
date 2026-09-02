@@ -29,7 +29,7 @@ class LotService
         ]);
     }
 
-    public function getAllLots(?int $projectId = null, int $perPage = 15)
+    public function getAllLots(?int $projectId = null, int $perPage = 20)
     {
         $query = Lot::with('project')->latest();
 
@@ -37,6 +37,6 @@ class LotService
             $query->where('project_id', $projectId);
         }
 
-        return $query->get();
+        return $query->paginate($perPage);
     }
 }

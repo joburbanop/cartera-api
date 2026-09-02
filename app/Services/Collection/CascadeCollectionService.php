@@ -9,6 +9,7 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
@@ -54,7 +55,7 @@ class CascadeCollectionService
                 Receipt::create([
                     'transaction_id' => $transaction->id,
                     'file_path' => $path,
-                    'file_name' => $receipt->getClientOriginalName(),
+                    'file_name' => SafeUploadedFileName::forReceipt($receipt),
                     'file_type' => $receipt->getClientMimeType(),
                 ]);
             }
