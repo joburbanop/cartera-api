@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ReorderPaymentPromisesRequest;
 use App\Http\Requests\StorePaymentPromisesRequest;
 use App\DTOs\ContractPaymentPromiseDTO;
+use App\Models\Contract;
 use App\Services\ContractPaymentPromiseService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -19,10 +21,8 @@ class ContractPaymentPromiseController extends Controller
 
     public function index($contractId): JsonResponse
     {
-        $contract = \App\Models\Contract::with('paymentPromises')->findOrFail($contractId);
-
         return $this->successResponse(
-            $contract->paymentPromises()->orderBy('expected_date')->get(),
+            $this->contractPaymentPromiseService->listWithStatus((int) $contractId),
             'Plan comercial de pagos obtenido exitosamente.'
         );
     }
@@ -40,6 +40,19 @@ class ContractPaymentPromiseController extends Controller
             $savedPromises,
             'Plan comercial de pagos guardado exitosamente.',
             201
+        );
+    }
+
+    public function reorder(ReorderPaymentPromisesRequest $request, Contract $contract): JsonResponse
+    {
+        $updated = $this->contractPaymentPromiseService->reorder(
+            $contract->id,
+            $request->validated('promises'),
+        );
+
+        return $this->successResponse(
+            $updated,
+            'Cronograma reordenado exitosamente.',
         );
     }
 }

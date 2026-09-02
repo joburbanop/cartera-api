@@ -34,6 +34,7 @@ class Contract extends Model
         'first_installment_date',
         'regular_payment_start_date',
         'preventa_installments_count',
+        'is_custom_plan',
         'status',
         'created_by',
         'updated_by',
@@ -50,6 +51,8 @@ class Contract extends Model
             'sale_price' => 'decimal:2',
             'down_payment_pactada' => 'decimal:2',
             'interest_rate' => 'decimal:2',
+            'preventa_installments_count' => 'integer',
+            'is_custom_plan' => 'boolean',
             'status' => ContractStatus::class, // Laravel validará y convertirá automáticamente este campo usando el Enum
         ];
     }
@@ -108,6 +111,7 @@ class Contract extends Model
                 'first_installment_date',
                 'regular_payment_start_date',
                 'preventa_installments_count',
+                'is_custom_plan',
                 'status',
             ])
             ->logOnlyDirty()

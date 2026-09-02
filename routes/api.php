@@ -74,6 +74,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:contracts.view|contracts.manage');
     Route::post('/contracts/{contractId}/payment-promises', [ContractPaymentPromiseController::class, 'store'])
         ->middleware('permission:contracts.manage');
+    Route::patch('/contracts/{contract}/payment-promises/reorder', [ContractPaymentPromiseController::class, 'reorder'])
+        ->middleware('permission:contracts.manage');
 
     Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show'])
         ->middleware('permission:amortization.view|contracts.manage');

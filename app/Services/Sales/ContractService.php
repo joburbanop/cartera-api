@@ -50,6 +50,7 @@ class ContractService
                 'first_installment_date' => $dto->firstInstallmentDate,
                 'regular_payment_start_date' => $dto->regularPaymentStartDate,
                 'preventa_installments_count' => $dto->preventaInstallmentsCount,
+                'is_custom_plan' => $dto->isCustomPlan,
                 'created_by' => $dto->createdBy,
             ]);
 
