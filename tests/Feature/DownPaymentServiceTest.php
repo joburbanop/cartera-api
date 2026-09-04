@@ -115,6 +115,29 @@ class DownPaymentServiceTest extends TestCase
         $this->assertSame(AmortizationStatus::PAID, $this->initialInstallment()->status);
         $this->assertSame('0.00', (string) $this->initialInstallment()->quota_debt);
         $this->assertSame(bcsub(self::SALE_PRICE, self::DOWN_PAYMENT, 2), (string) $this->initialInstallment()->remaining_balance);
+        $this->assertSame(self::DOWN_PAYMENT, (string) $this->initialInstallment()->principal_paid);
+    }
+
+    public function test_un_residual_de_450_en_la_inicial_la_da_por_pagada_y_activa_el_contrato(): void
+    {
+        $this->pay('19999550.00');
+
+        $this->assertSame(ContractStatus::ACTIVO, $this->contract->fresh()->status);
+        $this->assertSame(LotStatus::VENDIDO, $this->contract->lot->fresh()->status);
+        $this->assertSame(AmortizationStatus::PAID, $this->initialInstallment()->status);
+        $this->assertSame('0.00', (string) $this->initialInstallment()->quota_debt);
+        $this->assertSame(self::DOWN_PAYMENT, (string) $this->initialInstallment()->principal_paid);
+    }
+
+    public function test_un_residual_mayor_a_500_en_la_inicial_no_activa_el_contrato(): void
+    {
+        $this->pay('19999400.00');
+
+        $this->assertSame(ContractStatus::PREVENTA_INACTIVA, $this->contract->fresh()->status);
+        $this->assertSame(LotStatus::DISPONIBLE, $this->contract->lot->fresh()->status);
+        $this->assertSame(AmortizationStatus::PARTIAL, $this->initialInstallment()->status);
+        $this->assertSame('600.00', (string) $this->initialInstallment()->quota_debt);
+        $this->assertNotSame(AmortizationStatus::PAID, $this->initialInstallment()->status);
     }
 
     private function pay(string $amount): void

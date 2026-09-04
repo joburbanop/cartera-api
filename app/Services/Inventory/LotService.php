@@ -31,7 +31,12 @@ class LotService
 
     public function getAllLots(?int $projectId = null, int $perPage = 20)
     {
-        $query = Lot::with('project')->latest();
+        $query = Lot::with('project')
+            ->withCount('contracts')
+            ->with(['contracts' => function ($relation): void {
+                $relation->select('id', 'lot_id')->orderByDesc('id');
+            }])
+            ->latest();
 
         if ($projectId) {
             $query->where('project_id', $projectId);

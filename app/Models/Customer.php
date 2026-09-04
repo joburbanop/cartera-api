@@ -6,8 +6,10 @@ use App\Enums\ContractStatus;
 use App\Enums\DocumentType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
@@ -32,11 +34,15 @@ class Customer extends Model
         'deleted_by',
     ];
 
+    protected $hidden = [
+        'pivot',
+    ];
+
     protected function casts(): array
     {
         return [
             // Laravel validará y convertirá automáticamente este campo usando el Enum
-            'document_type' => DocumentType::class, 
+            'document_type' => DocumentType::class,
         ];
     }
 
@@ -57,15 +63,17 @@ class Customer extends Model
     }
 
     // --- Relaciones de Negocio ---
-    public function contracts()
+    public function contracts(): BelongsToMany
     {
-        return $this->hasMany(Contract::class);
+        return $this->belongsToMany(Contract::class, 'contract_customer')
+            ->withPivot('role')
+            ->withTimestamps();
     }
 
-    public function activeContracts()
+    public function activeContracts(): BelongsToMany
     {
-        return $this->hasMany(Contract::class)
-            ->whereIn('status', [
+        return $this->contracts()
+            ->whereIn('contracts.status', [
                 ContractStatus::ACTIVO->value,
                 ContractStatus::PREVENTA_INACTIVA->value,
                 'active',
@@ -73,7 +81,7 @@ class Customer extends Model
             ]);
     }
 
-    public function activeContract()
+    public function activeContract(): HasOne
     {
         return $this->hasOne(Contract::class)
             ->whereIn('status', [

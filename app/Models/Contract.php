@@ -2,22 +2,32 @@
 
 namespace App\Models;
 
+use App\Enums\ContractCustomerRole;
+use App\Enums\ContractStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
-use App\Enums\ContractStatus;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
-
 
 class Contract extends Model
 {
     use HasFactory, SoftDeletes;
     use LogsActivity {
         shouldLogEvent as protected spatieShouldLogEvent;
+    }
+
+    protected static function booted(): void
+    {
+        static::created(function (Contract $contract) {
+            if ($contract->customer_id) {
+                $contract->syncHolders((int) $contract->customer_id);
+            }
+        });
     }
 
     protected $fillable = [
@@ -35,6 +45,7 @@ class Contract extends Model
         'regular_payment_start_date',
         'preventa_installments_count',
         'is_custom_plan',
+        'is_special_lot',
         'status',
         'created_by',
         'updated_by',
@@ -53,6 +64,7 @@ class Contract extends Model
             'interest_rate' => 'decimal:2',
             'preventa_installments_count' => 'integer',
             'is_custom_plan' => 'boolean',
+            'is_special_lot' => 'boolean',
             'status' => ContractStatus::class, // Laravel validará y convertirá automáticamente este campo usando el Enum
         ];
     }
@@ -61,6 +73,80 @@ class Contract extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function customers(): BelongsToMany
+    {
+        return $this->belongsToMany(Customer::class, 'contract_customer')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    public function primaryCustomer(): ?Customer
+    {
+        if ($this->relationLoaded('customers')) {
+            $fromPivot = $this->customers->first(
+                fn (Customer $customer) => $customer->pivot?->role === ContractCustomerRole::TITULAR_PRINCIPAL->value
+            );
+
+            if ($fromPivot) {
+                return $fromPivot;
+            }
+        }
+
+        if (Schema::hasTable('contract_customer')) {
+            $fromPivot = $this->customers()
+                ->wherePivot('role', ContractCustomerRole::TITULAR_PRINCIPAL->value)
+                ->first();
+
+            if ($fromPivot) {
+                return $fromPivot;
+            }
+        }
+
+        return $this->customer;
+    }
+
+    public function holderDisplayName(): string
+    {
+        if ($this->relationLoaded('customers') && $this->customers->isNotEmpty()) {
+            $names = $this->customers
+                ->sortBy(fn (Customer $customer) => $customer->pivot?->role === ContractCustomerRole::TITULAR_PRINCIPAL->value ? 0 : 1)
+                ->pluck('name')
+                ->filter()
+                ->values();
+
+            if ($names->isNotEmpty()) {
+                return $names->implode(', ');
+            }
+        }
+
+        return $this->primaryCustomer()?->name ?? 'Sin Cliente';
+    }
+
+    /**
+     * @param  list<int|string>  $coTitularIds
+     */
+    public function syncHolders(int $primaryCustomerId, array $coTitularIds = []): void
+    {
+        if (! Schema::hasTable('contract_customer') || $primaryCustomerId <= 0) {
+            return;
+        }
+
+        $sync = [
+            $primaryCustomerId => ['role' => ContractCustomerRole::TITULAR_PRINCIPAL->value],
+        ];
+
+        foreach (array_unique($coTitularIds) as $id) {
+            $id = (int) $id;
+            if ($id <= 0 || $id === $primaryCustomerId) {
+                continue;
+            }
+
+            $sync[$id] = ['role' => ContractCustomerRole::CO_TITULAR->value];
+        }
+
+        $this->customers()->sync($sync);
     }
 
     public function lot(): BelongsTo
@@ -112,6 +198,7 @@ class Contract extends Model
                 'regular_payment_start_date',
                 'preventa_installments_count',
                 'is_custom_plan',
+                'is_special_lot',
                 'status',
             ])
             ->logOnlyDirty()

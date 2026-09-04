@@ -87,14 +87,14 @@ class DashboardMetricsService
     public function actividadReciente(int $limite = 10): array
     {
         $pagos = Transaction::query()
-            ->with(['contract.customer'])
+            ->with(['contract.customer', 'contract.customers'])
             ->orderByDesc('transaction_date')
             ->orderByDesc('id')
             ->limit($limite)
             ->get();
 
         $contratos = Contract::query()
-            ->with('customer')
+            ->with(['customer', 'customers'])
             ->orderByDesc('start_date')
             ->orderByDesc('id')
             ->limit($limite)
@@ -112,7 +112,7 @@ class DashboardMetricsService
                 'fecha' => optional($pago->transaction_date)?->toDateString(),
                 'monto' => $this->money($pago->amount),
                 'referencia' => $tipo,
-                'cliente' => $pago->contract?->customer?->name,
+                'cliente' => $pago->contract?->holderDisplayName(),
                 'contrato' => $pago->contract?->contract_number,
             ];
         }
@@ -126,7 +126,7 @@ class DashboardMetricsService
                 'fecha' => $fecha,
                 'monto' => $this->money($contrato->sale_price),
                 'referencia' => (string) $contrato->contract_number,
-                'cliente' => $contrato->customer?->name,
+                'cliente' => $contrato->holderDisplayName(),
                 'contrato' => $contrato->contract_number,
             ];
         }
@@ -277,9 +277,13 @@ class DashboardMetricsService
 
     private function yearMonthSql(string $column): string
     {
-        return DB::connection()->getDriverName() === 'sqlite'
-            ? "strftime('%Y-%m', {$column})"
-            : "DATE_FORMAT({$column}, '%Y-%m')";
+        $driver = DB::connection()->getDriverName();
+
+        return match ($driver) {
+            'sqlite' => "strftime('%Y-%m', {$column})",
+            'pgsql' => "to_char({$column}, 'YYYY-MM')",
+            default => "DATE_FORMAT({$column}, '%Y-%m')",
+        };
     }
 
     private function cuotaDebtSql(): string

@@ -33,6 +33,8 @@ class AmortizationInstallment extends Model
         'extra_payment' => 'decimal:2',
         'interest_value' => 'decimal:2',
         'principal_value' => 'decimal:2',
+        'interest_paid' => 'decimal:2',
+        'principal_paid' => 'decimal:2',
         'quota_debt' => 'decimal:2',
         'remaining_balance' => 'decimal:2',
         'projected_balance' => 'decimal:2',

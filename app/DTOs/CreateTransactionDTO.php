@@ -20,6 +20,7 @@ class CreateTransactionDTO
         public readonly ?string $paymentOption = null,
         public readonly ?string $recalculationType = null,
         public readonly ?UploadedFile $receipt = null,
+        public readonly ?string $notes = null,
     ) {}
 
     public static function fromRequest(

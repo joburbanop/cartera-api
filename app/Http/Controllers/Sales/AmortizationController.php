@@ -66,7 +66,8 @@ class AmortizationController extends Controller
             $plan = $this->amortizationService->generateInitialProjection($contract);
         }
 
-        $customer = $contract->customer;
+        $contract->loadMissing(['customer', 'customers', 'lot.project']);
+        $customer = $contract->primaryCustomer();
         $lot = $contract->lot;
         $project = $lot?->project;
 

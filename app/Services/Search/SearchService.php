@@ -49,14 +49,24 @@ class SearchService
 
         if ($this->canSeeContracts($user)) {
             $empty['contracts'] = Contract::query()
-                ->with('customer:id,name')
-                ->where('contract_number', 'like', $like)
+                ->with(['customer:id,name', 'customers:id,name'])
+                ->where(function ($builder) use ($like) {
+                    $builder->where('contract_number', 'like', $like)
+                        ->orWhereHas('customer', function ($customer) use ($like) {
+                            $customer->where('name', 'like', $like)
+                                ->orWhere('document_number', 'like', $like);
+                        })
+                        ->orWhereHas('customers', function ($holders) use ($like) {
+                            $holders->where('customers.name', 'like', $like)
+                                ->orWhere('customers.document_number', 'like', $like);
+                        });
+                })
                 ->limit(5)
                 ->get(['id', 'contract_number', 'customer_id'])
                 ->map(static fn (Contract $contract): array => [
                     'id' => $contract->id,
                     'contract_number' => $contract->contract_number,
-                    'customer_name' => $contract->customer?->name,
+                    'customer_name' => $contract->holderDisplayName(),
                 ])
                 ->values()
                 ->all();

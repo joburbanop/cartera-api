@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers\Sales;
 
+use App\DTOs\CreateContractDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreContractRequest;
-use App\DTOs\CreateContractDTO;
+use App\Models\Contract;
 use App\Models\Customer;
 use App\Services\Sales\ContractService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
-use App\Models\Contract;
+use Illuminate\Http\Request;
 
 class ContractController extends Controller
 {
@@ -72,19 +73,22 @@ class ContractController extends Controller
         $request->merge(['customer_id' => $customer->id]);
     }
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $contracts = $this->contractService->getAllContracts();
+        $lotId = $request->filled('lot_id') ? (int) $request->query('lot_id') : null;
+        $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
+        $contracts = $this->contractService->getAllContracts($perPage, $lotId);
 
         return $this->successResponse($contracts, 'Lista de contratos obtenida exitosamente.');
     }
 
-   public function show(Contract $contract)
+    public function show(Contract $contract)
     {
         // Cargamos los datos del lote, cliente, proyecto, cuentas del proyecto y transacciones
         $contract->load([
             'lot',
             'customer',
+            'customers',
             'lot.project.bankAccounts',
             'transactions',
         ]);

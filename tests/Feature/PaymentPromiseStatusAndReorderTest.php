@@ -100,6 +100,24 @@ class PaymentPromiseStatusAndReorderTest extends TestCase
             ->assertJsonPath('data.2.status', 'pendiente');
     }
 
+    public function test_un_abono_de_cuota_inicial_no_se_reparte_sobre_el_cronograma(): void
+    {
+        Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::DOWN_PAYMENT->value,
+            'amount' => '1000000.00',
+            'transaction_date' => '2027-03-01',
+            'payment_method' => PaymentMethod::TRANSFER->value,
+        ]);
+
+        $this->getJson("/api/contracts/{$this->contract->id}/payment-promises")
+            ->assertOk()
+            ->assertJsonPath('data.0.status', 'vencida')
+            ->assertJsonPath('data.0.remaining_amount', '1000000.00')
+            ->assertJsonPath('data.1.status', 'vencida')
+            ->assertJsonPath('data.2.status', 'pendiente');
+    }
+
     public function test_reordenar_actualiza_fechas_y_rechaza_mover_una_pagada(): void
     {
         $this->patchJson("/api/contracts/{$this->contract->id}/payment-promises/reorder", [

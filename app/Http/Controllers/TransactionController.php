@@ -22,11 +22,18 @@ class TransactionController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $query = Transaction::query()->with(['contract.customer', 'contract.lot', 'receipt']);
+        $query = Transaction::query()->with(['contract.customer', 'contract.customers', 'contract.lot', 'receipt']);
 
         if ($request->filled('customer_id')) {
-            $query->whereHas('contract.customer', function ($customerQuery) use ($request) {
-                $customerQuery->where('id', $request->integer('customer_id'));
+            $customerId = $request->integer('customer_id');
+            $query->where(function ($transactionQuery) use ($customerId) {
+                $transactionQuery
+                    ->whereHas('contract.customer', function ($customerQuery) use ($customerId) {
+                        $customerQuery->where('customers.id', $customerId);
+                    })
+                    ->orWhereHas('contract.customers', function ($holdersQuery) use ($customerId) {
+                        $holdersQuery->where('customers.id', $customerId);
+                    });
             });
         }
 
@@ -128,7 +135,7 @@ class TransactionController extends Controller
             'created_at' => $transaction->created_at
                 ? $transaction->created_at->format('Y-m-d H:i:s')
                 : null,
-            'customer_name' => $transaction->contract?->customer?->name ?? 'Sin Cliente',
+            'customer_name' => $transaction->contract?->holderDisplayName() ?? 'Sin Cliente',
             'lot_number' => $transaction->contract?->lot?->number ?? 'Sin Lote',
             'receipt' => $transaction->receipt
                 ? route('transactions.receipt', $transaction->id)

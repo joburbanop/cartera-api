@@ -51,7 +51,9 @@ class PaymentPromiseStatusService
 
     private function paidTotal(Contract $contract): string
     {
-        $sum = $contract->transactions()->sum('amount');
+        $sum = $contract->transactions()
+            ->where('transaction_type', '!=', \App\Enums\TransactionType::DOWN_PAYMENT)
+            ->sum('amount');
 
         return bcadd((string) ($sum ?: '0'), '0', 2);
     }

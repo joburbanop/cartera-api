@@ -63,6 +63,25 @@ it('permite al administrador ver clientes, contratos y lotes coincidentes', func
         ->and($data['lots'][0]['project_name'])->toBe('Proyecto BuscaAlpha');
 });
 
+it('encuentra el contrato al buscar por el nombre del co-titular', function () {
+    $coTitular = Customer::factory()->create([
+        'name' => 'BuscaCoTitular Extra',
+        'document_number' => '55667788',
+    ]);
+
+    $this->contract->syncHolders($this->customer->id, [$coTitular->id]);
+
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    $data = $this->getJson('/api/search?q=BuscaCoTitular')
+        ->assertOk()
+        ->json('data');
+
+    expect($data['contracts'])->toHaveCount(1)
+        ->and($data['contracts'][0]['contract_number'])->toBe('CTR-BuscaAlpha')
+        ->and($data['contracts'][0]['customer_name'])->toContain('BuscaCoTitular Extra');
+});
+
 it('permite a socio_gerencia ver contratos y lotes, pero clientes siempre vacío', function () {
     $this->actingAsRole(RoleName::SOCIO_GERENCIA->value);
 

@@ -3,6 +3,7 @@
 use App\DTOs\CreateContractDTO;
 use App\Http\Requests\StoreContractRequest;
 use App\Models\Contract;
+use App\Services\Financial\Amortization\AmortizationCalculationService;
 use App\Services\Financial\Amortization\AmortizationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -39,7 +40,11 @@ it('maps first installment date into the contract dto', function () {
         ->shouldReceive('validated')
         ->with('is_custom_plan')->andReturn(false)
         ->shouldReceive('validated')
+        ->with('is_special_lot')->andReturn(false)
+        ->shouldReceive('validated')
         ->with('promises')->andReturn(null)
+        ->shouldReceive('validated')
+        ->with('co_titular_ids')->andReturn([])
         ->shouldReceive('validated')
         ->with('created_by')->andReturn(null);
 
@@ -52,7 +57,7 @@ it('maps first installment date into the contract dto', function () {
 });
 
 it('requires a valid first installment date in the contract request', function () {
-    $rules = (new StoreContractRequest())->rules();
+    $rules = (new StoreContractRequest)->rules();
 
     expect($rules['first_installment_date'] ?? '')
         ->toContain('required')
@@ -105,7 +110,7 @@ it('allows contract creation without customer_id when customer information is pr
         'customer_document' => '99999999',
         'customer_phone' => '3000000000',
         'customer_email' => 'juan.prueba@example.com',
-    ], (new StoreContractRequest())->rules());
+    ], (new StoreContractRequest)->rules());
 
     expect($validator->passes())->toBeTrue();
 });
@@ -116,7 +121,7 @@ it('calculates regular installment due dates from the first installment date', f
         'first_installment_date' => '2026-10-15',
     ]);
 
-    $service = new AmortizationService(app(\App\Services\Financial\Amortization\AmortizationCalculationService::class));
+    $service = new AmortizationService(app(AmortizationCalculationService::class));
 
     expect($service->getRegularInstallmentDueDate($contract, 1)->toDateString())->toBe('2026-10-15')
         ->and($service->getRegularInstallmentDueDate($contract, 2)->toDateString())->toBe('2026-11-15')
@@ -193,7 +198,7 @@ it('allows reusing a lot when the previous contract was rescinded or soft delete
         'first_installment_date' => '2026-10-15',
         'regular_payment_start_date' => '2026-10-15',
         'preventa_installments_count' => 2,
-    ], (new StoreContractRequest())->rules());
+    ], (new StoreContractRequest)->rules());
 
     expect($validator->passes())->toBeTrue();
 });

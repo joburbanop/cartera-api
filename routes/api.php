@@ -60,6 +60,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/lots', [LotController::class, 'index'])
         ->middleware('permission:lots.view|lots.manage');
+    Route::get('/lots/{lot}', [LotController::class, 'show'])
+        ->middleware('permission:lots.view|lots.manage');
     Route::post('/lots', [LotController::class, 'store'])
         ->middleware('permission:lots.manage');
 
