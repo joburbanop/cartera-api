@@ -85,7 +85,11 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:amortization.view|contracts.manage');
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate'])
         ->middleware('permission:contracts.manage');
+    Route::post('/contracts/{contract}/installments/{installment}/due-date/preview', [AmortizationController::class, 'previewInstallmentDueDate'])
+        ->middleware('permission:contracts.manage');
     Route::patch('/contracts/{contract}/installments/{installment}/due-date', [AmortizationController::class, 'updateInstallmentDueDate'])
+        ->middleware('permission:contracts.manage');
+    Route::patch('/contracts/{contract}/installments/{installment}/payment-date', [AmortizationController::class, 'updateInstallmentPaymentDate'])
         ->middleware('permission:contracts.manage');
     Route::post('/contracts/{contract}/refinance', [RefinanceContractController::class, 'store'])
         ->middleware(['permission:contracts.refinance', 'throttle:writes']);

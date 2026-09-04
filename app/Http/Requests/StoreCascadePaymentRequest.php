@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Enums\PaymentMethod;
 
 class StoreCascadePaymentRequest extends FormRequest
 {
@@ -41,6 +42,7 @@ class StoreCascadePaymentRequest extends FormRequest
                     ),
             ],
             'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'payment_method' => ['nullable', Rule::enum(PaymentMethod::class)],
         ];
     }
 

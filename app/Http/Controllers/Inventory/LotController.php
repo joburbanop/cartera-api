@@ -33,7 +33,14 @@ class LotController extends Controller
     {
         $projectId = $request->query('project_id') ? (int) $request->query('project_id') : null;
         $perPage = min(100, max(1, (int) $request->integer('per_page', 20)));
-        $lots = $this->lotService->getAllLots($projectId, $perPage);
+        $lots = $this->lotService->getAllLots($projectId, $perPage, [
+            'project_id' => $projectId,
+            'number' => $request->query('number'),
+            'status' => $request->query('status'),
+            'plan_type' => $request->query('plan_type'),
+            'cartera' => $request->query('cartera'),
+            'customer' => $request->query('customer'),
+        ]);
 
         return $this->successResponse($lots, 'Lista de lotes obtenida exitosamente.');
     }
