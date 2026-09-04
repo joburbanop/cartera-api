@@ -7,7 +7,7 @@ use App\Http\Requests\StoreLotRequest;
 class CreateLotDTO
 {
     public function __construct(
-        public readonly int $projectId,
+       
         public readonly string $number,
         public readonly float $areaM2,
         public readonly float $priceM2,
@@ -25,7 +25,7 @@ class CreateLotDTO
     public static function fromRequest(StoreLotRequest $request): self
     {
         return new self(
-            projectId: (int) $request->validated('project_id'),
+           
             number: $request->validated('number'),
             areaM2: (float) $request->validated('area_m2'),
             priceM2: (float) $request->validated('price_m2'),

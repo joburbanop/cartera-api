@@ -47,26 +47,27 @@ class CustomerResource extends JsonResource
 
         return [
             'id' => $this->id,
-            'nombre' => $this->name,
-            'name' => $this->name,
-            'documento' => $this->document_number,
+
+            'document_type' => $this->document_type?->value ?? 'CC',
             'document_number' => $this->document_number,
-            'telefono' => $this->phone ?? 'Sin teléfono',
+            'name' => $this->name,
             'phone' => $this->phone,
             'email' => $this->email,
+            'address' => $this->address,
+            'city' => $this->city,
+
             'lote' => $loteName,
             'cantidad_contratos' => $cantidadContratos,
             'estadoCartera' => $estadoCartera,
-            'tipo_documento' => $this->document_type?->value ?? 'CC',
-            'document_type' => $this->document_type?->value ?? 'CC',
-            'direccion' => $this->address,
-            'address' => $this->address,
-            'ciudad' => $this->city,
-            'city' => $this->city,
+
             'contracts' => $this->whenLoaded('contracts', function () {
                 return $this->contracts->map(function ($contract) {
                     $status = $contract->status;
-                    $statusValue = $status instanceof ContractStatus ? $status->value : $status;
+
+                    $statusValue = $status instanceof ContractStatus
+                        ? $status->value
+                        : $status;
+
                     $lot = $contract->lot;
                     $project = $lot?->project;
 
@@ -74,11 +75,13 @@ class CustomerResource extends JsonResource
                         'id' => $contract->id,
                         'contract_number' => $contract->contract_number,
                         'status' => $statusValue,
+
                         'lot' => $lot ? [
                             'id' => $lot->id,
                             'number' => $lot->number,
                             'name' => $lot->number,
                         ] : null,
+
                         'project' => $project ? [
                             'id' => $project->id,
                             'name' => $project->name,

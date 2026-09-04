@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Lot extends Model
 {
@@ -55,6 +56,10 @@ class Lot extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(Contract::class);
     }
 
     // Auditoría

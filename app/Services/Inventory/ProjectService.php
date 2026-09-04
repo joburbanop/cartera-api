@@ -77,13 +77,13 @@ class ProjectService
         return $projects;
     }
 
-  public function updateProject(Project $project, UpdateProjectDTO $dto, int $userId): Project 
+  public function updateProject(Project $project, UpdateProjectDTO $dto, int $userId): Project
 {
     return DB::transaction(function () use ($project, $dto, $userId) {
 
-        if ($project->status !== 'active') {
+        if (!in_array($project->status, ['active', 'completed'], true)) {
             throw new \DomainException(
-                'Solo se pueden editar proyectos activos.'
+                'Solo se pueden editar proyectos activos o completados.'
             );
         }
 
@@ -100,28 +100,28 @@ class ProjectService
     });
 }
    public function archiveProject(Project $project, int $userId): Project
-    {
-        return DB::transaction(function () use ($project, $userId) {
+{
+    return DB::transaction(function () use ($project, $userId) {
 
-            if ($project->status !== 'active') {
-                throw new \DomainException(
-                    'Solo se pueden archivar proyectos activos.'
-                );
-            }
+        if ($project->status !== 'active') {
+            throw new \DomainException(
+                'Solo se pueden archivar proyectos activos.'
+            );
+        }
 
-            $project->update([
-                'status' => 'inactive',
-                'updated_by' => $userId,
-            ]);
+        $project->update([
+            'status' => 'inactive',
+            'updated_by' => $userId,
+        ]);
 
-            $project->statusHistory()->create([
-                'status' => 'inactive',
-                'changed_by' => $userId,
-            ]);
+        $project->statusHistory()->create([
+            'status' => 'inactive',
+            'changed_by' => $userId,
+        ]);
 
-            return $project->load('bankAccounts');
-        });
-    }
+        return $project->load('bankAccounts');
+    });
+}
     public function activateProject(Project $project, int $userId): Project
     {
         return DB::transaction(function () use ($project, $userId) {

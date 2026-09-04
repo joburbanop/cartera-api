@@ -17,7 +17,7 @@ class StoreLotRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'project_id' => 'required|exists:projects,id',
+           
             'number' => [
                 'required', 'string', 'max:50',
                 Rule::unique('lots')->where(fn ($query) => $query->where('project_id', $this->project_id))
