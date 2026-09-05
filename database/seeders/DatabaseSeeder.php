@@ -70,7 +70,7 @@ class DatabaseSeeder extends Seeder
 
         // ProjectSeeder y LotSeeder (Bosque Real, Andes Heights, Llanos del Sol)
         // ya no se invocan: el inventario real de San Miguel se carga con
-        // `php artisan import:san-miguel`, no con lotes de demostración.
+        // `php artisan import:san-miguel --fresh`, no con lotes de demostración.
         // FinancialTestSeeder / Contract053EimySeeder tampoco: CONTRATO-SM-LOTE6
         // era un contrato de prueba del lote 6; el histórico sale del Excel.
     }

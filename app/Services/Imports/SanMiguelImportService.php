@@ -9,6 +9,7 @@ use App\Enums\LotStatus;
 use App\Enums\LotType;
 use App\Enums\TransactionType;
 use App\Imports\SanMiguel\SanMiguelCustomSchedules;
+use App\Imports\SanMiguel\SanMiguelHistoricalAlignments;
 use App\Imports\SanMiguel\SanMiguelParsedClient;
 use App\Imports\SanMiguel\SanMiguelParsedLot;
 use App\Imports\SanMiguel\SanMiguelParsedPayment;
@@ -34,13 +35,20 @@ class SanMiguelImportService
         private readonly ContractService $contractService,
         private readonly DownPaymentService $downPaymentService,
         private readonly CascadeCollectionService $cascadeCollectionService,
+        private readonly SanMiguelWipeService $wipeService,
+        private readonly SanMiguelHistoricalFinalizeService $historicalFinalizeService,
     ) {}
 
     /**
      * @return array<string, mixed>
      */
-    public function import(string $path, bool $dryRun, ?string $soloLote = null): array
+    public function import(string $path, bool $dryRun, ?string $soloLote = null, bool $fresh = false): array
     {
+        $freshResult = null;
+        if (! $dryRun && $fresh) {
+            $freshResult = $this->wipeService->run();
+        }
+
         $lots = $this->parser->parse($path);
         if ($soloLote !== null && $soloLote !== '') {
             $lots = array_values(array_filter(
@@ -68,6 +76,9 @@ class SanMiguelImportService
             'failed' => [],
             'lot_details' => [],
             'inconsistencies' => [],
+            'fresh' => $freshResult,
+            'historical' => null,
+            'official_workbook' => SanMiguelHistoricalAlignments::isOfficialWorkbook($path),
         ];
 
         $plannedCustomers = [];
@@ -145,6 +156,13 @@ class SanMiguelImportService
         }
 
         if ($dryRun) {
+            $stats['historical'] = [
+                'skipped' => true,
+                'reason' => $stats['official_workbook']
+                    ? 'dry-run: las fases 2-4 no se ejecutan'
+                    : 'libro no oficial: las fases 2-4 no se ejecutan',
+            ];
+
             return $stats;
         }
 
@@ -172,6 +190,20 @@ class SanMiguelImportService
                     'reason' => $this->formatException($e),
                 ];
             }
+        }
+
+        if (SanMiguelHistoricalAlignments::isOfficialWorkbook($path) && $stats['failed'] === []) {
+            $stats['historical'] = $this->historicalFinalizeService->run($path, $soloLote);
+        } elseif (SanMiguelHistoricalAlignments::isOfficialWorkbook($path)) {
+            $stats['historical'] = [
+                'skipped' => true,
+                'reason' => 'hay lotes fallidos en la fase 1; no se corren las fases 2-4',
+            ];
+        } else {
+            $stats['historical'] = [
+                'skipped' => true,
+                'reason' => 'libro no oficial: las fases 2-4 no se ejecutan',
+            ];
         }
 
         return $stats;
