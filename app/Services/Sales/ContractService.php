@@ -50,6 +50,8 @@ class ContractService
                 'first_installment_date' => $dto->firstInstallmentDate,
                 'regular_payment_start_date' => $dto->regularPaymentStartDate,
                 'preventa_installments_count' => $dto->preventaInstallmentsCount,
+                'is_custom_plan' => $dto->isCustomPlan,
+                'is_special_lot' => $dto->isSpecialLot,
                 'created_by' => $dto->createdBy,
             ]);
 
@@ -58,6 +60,8 @@ class ContractService
             ]);
 
             $this->amortizationService->generateInitialProjection($contract);
+
+            $contract->syncHolders((int) $dto->customerId, $dto->coTitularIds);
 
             if ($dto->isCustomPlan && ! empty($dto->promises)) {
                 $promiseDTOs = array_map(function ($promise, int $index) {
@@ -72,12 +76,24 @@ class ContractService
                 $this->contractPaymentPromiseService->storeCommercialPlan($contract->id, $promiseDTOs);
             }
 
-            return $contract;
+            return $contract->load(['customer', 'customers', 'lot']);
         });
     }
 
-    public function getAllContracts(int $perPage = 15)
+    public function getAllContracts(int $perPage = 15, ?int $lotId = null)
     {
-        return Contract::with(['customer', 'lot'])->latest()->paginate($perPage);
+        $relations = ['customer', 'customers', 'lot'];
+
+        if ($lotId !== null) {
+            $relations[] = 'transactions';
+        }
+
+        $query = Contract::with($relations)->latest();
+
+        if ($lotId !== null) {
+            $query->where('lot_id', $lotId);
+        }
+
+        return $query->paginate($perPage);
     }
 }

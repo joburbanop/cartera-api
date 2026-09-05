@@ -23,7 +23,7 @@ class ContractFactory extends Factory
         $firstInstallmentDate = now()->addMonth()->toDateString();
 
         return [
-            'contract_number' => 'CTR-' . $this->faker->unique()->numerify('######'),
+            'contract_number' => 'CTR-'.$this->faker->unique()->numerify('######'),
             'customer_id' => Customer::factory(),
             'lot_id' => Lot::factory(),
             'seller_name' => $this->faker->name(),
@@ -38,5 +38,14 @@ class ContractFactory extends Factory
             'preventa_installments_count' => 0,
             'status' => 'activo',
         ];
+    }
+
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Contract $contract) {
+            if ($contract->customer_id) {
+                $contract->syncHolders((int) $contract->customer_id);
+            }
+        });
     }
 }

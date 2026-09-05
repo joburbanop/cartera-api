@@ -8,10 +8,10 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Lot extends Model
 {
@@ -61,6 +61,7 @@ class Lot extends Model
     {
         return $this->hasMany(Contract::class);
     }
+
 
     // Auditoría
     public function creator(): BelongsTo

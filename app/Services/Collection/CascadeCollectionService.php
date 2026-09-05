@@ -3,12 +3,15 @@
 namespace App\Services\Collection;
 
 use App\Enums\AmortizationStatus;
+use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
@@ -29,8 +32,11 @@ class CascadeCollectionService
         ?Carbon $transactionDate = null,
         array $selectedInstallmentIds = [],
         ?UploadedFile $receipt = null,
+        ?PaymentMethod $paymentMethod = null,
+        ?string $notes = null,
+        bool $persistTransaction = true,
     ): array {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt) {
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction) {
             $contract = Contract::findOrFail($contractId);
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
@@ -40,23 +46,27 @@ class CascadeCollectionService
             $hasExplicitSelection = ! empty($selectedInstallmentIds);
             $hasExtraordinaryOption = $this->isExtraordinaryOption($normalizedPaymentOption);
 
-            $transaction = Transaction::create([
-                'contract_id' => $contract->id,
-                'transaction_type' => TransactionType::REGULAR_PAYMENT,
-                'amount' => $availableAmount,
-                'transaction_date' => $effectiveTransactionDate->toDateString(),
-                'payment_method' => 'cash',
-            ]);
-
-            if ($receipt) {
-                $path = $receipt->store('receipts', 'local');
-
-                Receipt::create([
-                    'transaction_id' => $transaction->id,
-                    'file_path' => $path,
-                    'file_name' => $receipt->getClientOriginalName(),
-                    'file_type' => $receipt->getClientMimeType(),
+            $transaction = null;
+            if ($persistTransaction) {
+                $transaction = Transaction::create([
+                    'contract_id' => $contract->id,
+                    'transaction_type' => TransactionType::REGULAR_PAYMENT,
+                    'amount' => $availableAmount,
+                    'transaction_date' => $effectiveTransactionDate->toDateString(),
+                    'payment_method' => $paymentMethod ?? PaymentMethod::CASH,
+                    'notes' => $notes,
                 ]);
+
+                if ($receipt) {
+                    $path = $receipt->store('receipts', 'local');
+
+                    Receipt::create([
+                        'transaction_id' => $transaction->id,
+                        'file_path' => $path,
+                        'file_name' => SafeUploadedFileName::forReceipt($receipt),
+                        'file_type' => $receipt->getClientMimeType(),
+                    ]);
+                }
             }
 
             $pendingInstallments = $this->getPendingInstallments($contract, $selectedInstallmentIds)->values();
@@ -214,7 +224,7 @@ class CascadeCollectionService
             }
 
             return [
-                'transaction_id' => $transaction->id,
+                'transaction_id' => $transaction?->id,
                 'contract_id' => $contract->id,
                 'amount' => $this->normalizeMoney($amount),
                 'amount_applied' => $processedAmount,
@@ -254,7 +264,7 @@ class CascadeCollectionService
         Contract $contract,
         array $excludeIds,
         Carbon $transactionDate,
-    ): ?\App\Models\AmortizationInstallment {
+    ): ?AmortizationInstallment {
         $query = $contract->amortizationInstallments()
             ->where('installment_number', '>', 0)
             ->where('status', '!=', AmortizationStatus::PAID->value)

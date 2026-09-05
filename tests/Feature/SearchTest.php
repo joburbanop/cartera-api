@@ -60,7 +60,27 @@ it('permite al administrador ver clientes, contratos y lotes coincidentes', func
         ->and($data['contracts'][0]['customer_name'])->toBe('BuscaAlpha Cliente')
         ->and($data['lots'])->toHaveCount(1)
         ->and($data['lots'][0]['number'])->toBe('L-BuscaAlpha')
-        ->and($data['lots'][0]['project_name'])->toBe('Proyecto BuscaAlpha');
+        ->and($data['lots'][0]['project_name'])->toBe('Proyecto BuscaAlpha')
+        ->and($data['lots'][0]['contract_id'])->toBe($this->contract->id);
+});
+
+it('encuentra el contrato al buscar por el nombre del co-titular', function () {
+    $coTitular = Customer::factory()->create([
+        'name' => 'BuscaCoTitular Extra',
+        'document_number' => '55667788',
+    ]);
+
+    $this->contract->syncHolders($this->customer->id, [$coTitular->id]);
+
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    $data = $this->getJson('/api/search?q=BuscaCoTitular')
+        ->assertOk()
+        ->json('data');
+
+    expect($data['contracts'])->toHaveCount(1)
+        ->and($data['contracts'][0]['contract_number'])->toBe('CTR-BuscaAlpha')
+        ->and($data['contracts'][0]['customer_name'])->toContain('BuscaCoTitular Extra');
 });
 
 it('permite a socio_gerencia ver contratos y lotes, pero clientes siempre vacío', function () {
@@ -87,15 +107,54 @@ it('devuelve las tres listas vacías a admin_sistema aunque haya coincidencias',
         ->and($data['lots'])->toBe([]);
 });
 
-it('no dispara búsqueda real cuando la query tiene un solo carácter', function () {
+it('con un carácter busca lotes exactos y no clientes ni contratos', function () {
+    Lot::factory()->create([
+        'project_id' => $this->project->id,
+        'number' => 'W',
+    ]);
+
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    $data = $this->getJson('/api/search?q=W')
+        ->assertOk()
+        ->json('data');
+
+    expect($data['clients'])->toBe([])
+        ->and($data['contracts'])->toBe([])
+        ->and($data['lots'])->toHaveCount(1)
+        ->and($data['lots'][0]['number'])->toBe('W');
+});
+
+it('encuentra un lote por coincidencia exacta y variantes Lote 6 / L-6', function () {
+    $exact = Lot::factory()->create([
+        'project_id' => $this->project->id,
+        'number' => '6',
+    ]);
+    Lot::factory()->create([
+        'project_id' => $this->project->id,
+        'number' => '60',
+    ]);
+
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    foreach (['6', 'Lote 6', 'L-6'] as $term) {
+        $data = $this->getJson('/api/search?q='.urlencode($term))
+            ->assertOk()
+            ->json('data');
+
+        expect($data['lots'])->toHaveCount(1, 'term '.$term)
+            ->and($data['lots'][0]['id'])->toBe($exact->id)
+            ->and($data['lots'][0]['contract_id'])->toBeNull();
+    }
+});
+
+it('no dispara búsqueda de clientes ni contratos cuando la query tiene un solo carácter', function () {
     $this->actingAsRole(RoleName::ADMINISTRADOR->value);
 
     $queries = [];
     DB::listen(function ($query) use (&$queries) {
         $sql = strtolower($query->sql);
-        if (str_contains($sql, 'from "customers"')
-            || str_contains($sql, 'from "contracts"')
-            || str_contains($sql, 'from "lots"')) {
+        if (str_contains($sql, 'from "customers"') || str_contains($sql, 'from "contracts"')) {
             $queries[] = $sql;
         }
     });
@@ -106,6 +165,5 @@ it('no dispara búsqueda real cuando la query tiene un solo carácter', function
 
     expect($data['clients'])->toBe([])
         ->and($data['contracts'])->toBe([])
-        ->and($data['lots'])->toBe([])
         ->and($queries)->toBe([]);
 });

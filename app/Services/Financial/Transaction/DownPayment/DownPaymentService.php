@@ -7,12 +7,12 @@ use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\LotStatus;
 use App\Enums\TransactionType;
-use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Lot;
 use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Support\SafeUploadedFileName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -37,7 +37,7 @@ class DownPaymentService
                 2
             );
 
-            if (bccomp($pendingBalance, '0.00', 2) <= 0) {
+            if ($this->residualIsWithinCompletionTolerance($pendingBalance)) {
                 throw ValidationException::withMessages([
                     'amount' => 'La cuota inicial ya se encuentra completamente pagada.',
                 ]);
@@ -55,6 +55,7 @@ class DownPaymentService
                 'amount' => $dto->amount,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
+                'notes' => $dto->notes,
             ]);
 
             if ($dto->receipt) {
@@ -63,7 +64,7 @@ class DownPaymentService
                 Receipt::create([
                     'transaction_id' => $transaction->id,
                     'file_path' => $path,
-                    'file_name' => $dto->receipt->getClientOriginalName(),
+                    'file_name' => SafeUploadedFileName::forReceipt($dto->receipt),
                     'file_type' => $dto->receipt->getClientMimeType(),
                 ]);
             }
@@ -73,6 +74,12 @@ class DownPaymentService
 
             return $transaction;
         });
+    }
+
+    public function applyExistingDownPaymentToSchedule(Contract $contract, CreateTransactionDTO $dto): void
+    {
+        $this->updateInitialInstallment($contract, $dto);
+        $this->activateContractWhenDownPaymentIsComplete($contract);
     }
 
     private function updateInitialInstallment(Contract $contract, CreateTransactionDTO $dto): void
@@ -98,28 +105,34 @@ class DownPaymentService
             )
         );
 
+        $isComplete = $this->residualIsWithinCompletionTolerance($updatedDebt);
+        $principalValue = $this->normalizeMoney(
+            (string) ($initialInstallment->principal_value ?? $contract->down_payment_pactada)
+        );
+        $interestValue = $this->normalizeMoney((string) ($initialInstallment->interest_value ?? '0.00'));
+
         $initialInstallment->update([
-            'quota_debt' => $updatedDebt,
+            'quota_debt' => $isComplete ? '0.00' : $updatedDebt,
             'remaining_balance' => (string) (
                 $initialInstallment->remaining_balance
                 ?? ($contract->sale_price - $contract->down_payment_pactada)
             ),
             'payment_date' => $dto->transactionDate->toDateString(),
-            'status' => bccomp($updatedDebt, '0.00', 2) === 0
-                ? AmortizationStatus::PAID
-                : AmortizationStatus::PARTIAL,
+            'status' => $isComplete ? AmortizationStatus::PAID : AmortizationStatus::PARTIAL,
+            'principal_paid' => $isComplete ? $principalValue : $initialInstallment->principal_paid,
+            'interest_paid' => $isComplete ? $interestValue : $initialInstallment->interest_paid,
         ]);
     }
 
-    private function activateContractWhenDownPaymentIsComplete(Contract $contract): void
+    public function activateContractWhenDownPaymentIsComplete(Contract $contract): void
     {
-        $totalPaid = $contract->transactions()
-            ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-            ->sum('amount');
+        $residual = $this->downPaymentResidual($contract);
 
-        if (bccomp((string) $totalPaid, (string) $contract->down_payment_pactada, 2) < 0) {
+        if (! $this->residualIsWithinCompletionTolerance($residual)) {
             return;
         }
+
+        $this->markInitialInstallmentPaid($contract);
 
         $contract->update([
             'status' => ContractStatus::ACTIVO,
@@ -128,5 +141,50 @@ class DownPaymentService
         Lot::findOrFail($contract->lot_id)->update([
             'status' => LotStatus::VENDIDO,
         ]);
+    }
+
+    private function markInitialInstallmentPaid(Contract $contract): void
+    {
+        $initialInstallment = $contract->amortizationInstallments()
+            ->where('installment_number', 0)
+            ->first();
+
+        if (! $initialInstallment) {
+            return;
+        }
+
+        $principalValue = $this->normalizeMoney(
+            (string) ($initialInstallment->principal_value ?? $contract->down_payment_pactada)
+        );
+        $interestValue = $this->normalizeMoney((string) ($initialInstallment->interest_value ?? '0.00'));
+
+        $initialInstallment->update([
+            'status' => AmortizationStatus::PAID,
+            'quota_debt' => '0.00',
+            'principal_paid' => $principalValue,
+            'interest_paid' => $interestValue,
+        ]);
+    }
+
+    private function downPaymentResidual(Contract $contract): string
+    {
+        $totalPaid = $contract->transactions()
+            ->where('transaction_type', TransactionType::DOWN_PAYMENT)
+            ->sum('amount');
+
+        return max(
+            '0.00',
+            bcsub((string) $contract->down_payment_pactada, (string) $totalPaid, 2)
+        );
+    }
+
+    private function residualIsWithinCompletionTolerance(string $residual): bool
+    {
+        return bccomp($residual, '500.00', 2) < 0;
+    }
+
+    private function normalizeMoney(string $value): string
+    {
+        return bcadd($value, '0', 2);
     }
 }

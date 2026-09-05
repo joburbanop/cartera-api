@@ -12,9 +12,11 @@ use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
+use App\Models\Project;
 use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DashboardMetricsService
 {
@@ -37,55 +39,62 @@ class DashboardMetricsService
 
     public function recaudoReciente(): array
     {
-        $transactions = Transaction::query()
-            ->whereDate('transaction_date', '>=', Carbon::today()->startOfMonth())
-            ->whereDate('transaction_date', '<=', Carbon::today())
-            ->get(['amount']);
+        $start = Carbon::today()->startOfMonth()->toDateString();
+        $endExclusive = Carbon::today()->addDay()->toDateString();
 
-        $total = '0.00';
+        $row = Transaction::query()
+            ->where('transaction_date', '>=', $start)
+            ->where('transaction_date', '<', $endExclusive)
+            ->toBase()
+            ->selectRaw('COUNT(*) as cantidad_pagos, COALESCE(SUM(amount), 0) as total_recaudado')
+            ->first();
 
-        foreach ($transactions as $transaction) {
-            $total = bcadd($total, $this->money($transaction->amount), 2);
+        if (is_array($row)) {
+            $row = (object) $row;
         }
 
         return [
-            'total_recaudado' => number_format((float) $total, 2, '.', ''),
-            'cantidad_pagos' => $transactions->count(),
+            'total_recaudado' => number_format((float) ($row?->total_recaudado ?? 0), 2, '.', ''),
+            'cantidad_pagos' => (int) ($row?->cantidad_pagos ?? 0),
         ];
     }
 
     public function proximosVencimientos(int $dias = 7): array
     {
-        $installments = AmortizationInstallment::query()
+        $start = Carbon::today()->toDateString();
+        $endExclusive = Carbon::today()->addDays($dias + 1)->toDateString();
+        $debtSql = $this->cuotaDebtSql();
+
+        $row = AmortizationInstallment::query()
             ->where('installment_number', '>', 0)
-            ->whereDate('due_date', '>=', Carbon::today())
-            ->whereDate('due_date', '<=', Carbon::today()->addDays($dias))
+            ->where('due_date', '>=', $start)
+            ->where('due_date', '<', $endExclusive)
             ->where('status', '!=', AmortizationStatus::PAID->value)
-            ->get(['quota_debt', 'installment_value', 'interest_paid', 'principal_paid']);
+            ->toBase()
+            ->selectRaw("COUNT(*) as cantidad_cuotas, COALESCE(SUM({$debtSql}), 0) as total_por_vencer")
+            ->first();
 
-        $total = '0.00';
-
-        foreach ($installments as $installment) {
-            $total = bcadd($total, $this->deudaCuota($installment), 2);
+        if (is_array($row)) {
+            $row = (object) $row;
         }
 
         return [
-            'total_por_vencer' => number_format((float) $total, 2, '.', ''),
-            'cantidad_cuotas' => $installments->count(),
+            'total_por_vencer' => number_format((float) ($row?->total_por_vencer ?? 0), 2, '.', ''),
+            'cantidad_cuotas' => (int) ($row?->cantidad_cuotas ?? 0),
         ];
     }
 
     public function actividadReciente(int $limite = 10): array
     {
         $pagos = Transaction::query()
-            ->with(['contract.customer'])
+            ->with(['contract.customer', 'contract.customers'])
             ->orderByDesc('transaction_date')
             ->orderByDesc('id')
             ->limit($limite)
             ->get();
 
         $contratos = Contract::query()
-            ->with('customer')
+            ->with(['customer', 'customers'])
             ->orderByDesc('start_date')
             ->orderByDesc('id')
             ->limit($limite)
@@ -103,7 +112,7 @@ class DashboardMetricsService
                 'fecha' => optional($pago->transaction_date)?->toDateString(),
                 'monto' => $this->money($pago->amount),
                 'referencia' => $tipo,
-                'cliente' => $pago->contract?->customer?->name,
+                'cliente' => $pago->contract?->holderDisplayName(),
                 'contrato' => $pago->contract?->contract_number,
             ];
         }
@@ -117,7 +126,7 @@ class DashboardMetricsService
                 'fecha' => $fecha,
                 'monto' => $this->money($contrato->sale_price),
                 'referencia' => (string) $contrato->contract_number,
-                'cliente' => $contrato->customer?->name,
+                'cliente' => $contrato->holderDisplayName(),
                 'contrato' => $contrato->contract_number,
             ];
         }
@@ -137,6 +146,23 @@ class DashboardMetricsService
     }
 
     /**
+     * @return array{total_proyectos_activos: int}
+     */
+    public function proyectosActivos(): array
+    {
+        $total = Project::query()
+            ->where(function (Builder $query): void {
+                $query->whereIn('status', ['active', 'activo'])
+                    ->orWhereNull('status');
+            })
+            ->count();
+
+        return [
+            'total_proyectos_activos' => $total,
+        ];
+    }
+
+    /**
      * @return list<array{mes: string, total: string}>
      */
     public function recaudoMensual(): array
@@ -150,19 +176,24 @@ class DashboardMetricsService
             $totals[Carbon::today()->startOfMonth()->subMonths($offset)->format('Y-m')] = '0.00';
         }
 
-        $transactions = Transaction::query()
-            ->whereDate('transaction_date', '>=', $start)
-            ->whereDate('transaction_date', '<=', $end)
-            ->get(['amount', 'transaction_date']);
+        $monthSql = $this->yearMonthSql('transaction_date');
 
-        foreach ($transactions as $transaction) {
-            $mes = optional($transaction->transaction_date)?->format('Y-m');
+        $rows = Transaction::query()
+            ->where('transaction_date', '>=', $start->toDateString())
+            ->where('transaction_date', '<', $end->copy()->addDay()->toDateString())
+            ->toBase()
+            ->selectRaw("{$monthSql} as mes, COALESCE(SUM(amount), 0) as total")
+            ->groupByRaw($monthSql)
+            ->get();
 
-            if ($mes === null || ! array_key_exists($mes, $totals)) {
+        foreach ($rows as $row) {
+            $mes = (string) $row->mes;
+
+            if (! array_key_exists($mes, $totals)) {
                 continue;
             }
 
-            $totals[$mes] = bcadd($totals[$mes], $this->money($transaction->amount), 2);
+            $totals[$mes] = number_format((float) $row->total, 2, '.', '');
         }
 
         $series = [];
@@ -170,7 +201,7 @@ class DashboardMetricsService
         foreach ($totals as $mes => $total) {
             $series[] = [
                 'mes' => $mes,
-                'total' => number_format((float) $total, 2, '.', ''),
+                'total' => $total,
             ];
         }
 
@@ -240,8 +271,30 @@ class DashboardMetricsService
     {
         return AmortizationInstallment::query()
             ->where('installment_number', '>', 0)
-            ->whereDate('due_date', '<=', Carbon::today())
+            ->where('due_date', '<', Carbon::today()->addDay()->toDateString())
             ->where('status', '!=', AmortizationStatus::PAID->value);
+    }
+
+    private function yearMonthSql(string $column): string
+    {
+        $driver = DB::connection()->getDriverName();
+
+        return match ($driver) {
+            'sqlite' => "strftime('%Y-%m', {$column})",
+            'pgsql' => "to_char({$column}, 'YYYY-MM')",
+            default => "DATE_FORMAT({$column}, '%Y-%m')",
+        };
+    }
+
+    private function cuotaDebtSql(): string
+    {
+        $remainder = 'installment_value - interest_paid - principal_paid';
+
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return "CASE WHEN quota_debt > 0 THEN quota_debt ELSE MAX(0, {$remainder}) END";
+        }
+
+        return "CASE WHEN quota_debt > 0 THEN quota_debt ELSE GREATEST({$remainder}, 0) END";
     }
 
     private function deudaCuota(AmortizationInstallment $installment): string

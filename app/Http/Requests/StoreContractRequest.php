@@ -12,6 +12,28 @@ class StoreContractRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if (! $this->boolean('is_special_lot')) {
+            return;
+        }
+
+        $startDate = $this->input('start_date');
+        $salePrice = $this->input('sale_price');
+
+        $this->merge([
+            'is_custom_plan' => false,
+            'down_payment_pactada' => $salePrice,
+            'term_months' => $this->input('term_months', 0) ?? 0,
+            'interest_rate' => $this->input('interest_rate', 0) ?? 0,
+            'preventa_installments_count' => $this->input('preventa_installments_count', 0) ?? 0,
+            'initial_payment_date' => $this->input('initial_payment_date') ?: $startDate,
+            'first_installment_date' => $this->input('first_installment_date') ?: $startDate,
+            'regular_payment_start_date' => $this->input('regular_payment_start_date')
+                ?: ($this->input('first_installment_date') ?: $startDate),
+        ]);
+    }
+
     public static function calculateExpectedFutureValue(float $salePrice, float $downPayment, float $interestRate, int $termMonths): float
     {
         $principal = max(0.0, $salePrice - $downPayment);
@@ -40,7 +62,13 @@ class StoreContractRequest extends FormRequest
     {
         return [
             function ($validator) {
-                if (! $this->boolean('is_custom_plan')) {
+                $customerId = (int) $this->input('customer_id');
+                $coTitularIds = array_map('intval', (array) $this->input('co_titular_ids', []));
+                if ($customerId > 0 && in_array($customerId, $coTitularIds, true)) {
+                    $validator->errors()->add('co_titular_ids', 'Un mismo cliente no puede aparecer más de una vez entre los titulares.');
+                }
+
+                if ($this->boolean('is_special_lot') || ! $this->boolean('is_custom_plan')) {
                     return;
                 }
 
@@ -67,6 +95,8 @@ class StoreContractRequest extends FormRequest
 
     public function rules(): array
     {
+        $isSpecialLot = $this->boolean('is_special_lot');
+
         return [
             'contract_number' => 'required|string|max:100|unique:contracts,contract_number',
             'customer_id' => 'nullable|integer',
@@ -80,23 +110,30 @@ class StoreContractRequest extends FormRequest
                 Rule::unique('contracts', 'lot_id')
                     ->where(fn ($query) => $query
                         ->whereNull('deleted_at')
-                        ->whereNotIn('status', ['rescindido']))
+                        ->whereNotIn('status', ['rescindido'])),
             ],
             'seller_name' => 'nullable|string|max:150',
             'sale_price' => 'required|numeric|min:0',
-            'down_payment_pactada' => 'required|numeric|min:0',
-            'term_months' => 'required|integer|min:1',
+            'down_payment_pactada' => $isSpecialLot ? 'nullable|numeric|min:0' : 'required|numeric|min:0',
+            'term_months' => $isSpecialLot ? 'nullable|integer|min:0' : 'required|integer|min:1',
             'interest_rate' => 'nullable|numeric|min:0',
             'start_date' => 'required|date',
-            'initial_payment_date' => ['required', 'date', 'after_or_equal:start_date'],
-            'first_installment_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'initial_payment_date' => $isSpecialLot
+                ? ['nullable', 'date']
+                : ['required', 'date', 'after_or_equal:start_date'],
+            'first_installment_date' => $isSpecialLot
+                ? ['nullable', 'date']
+                : ['required', 'date', 'after_or_equal:start_date'],
             'regular_payment_start_date' => ['nullable', 'date', 'after_or_equal:first_installment_date'],
-            'preventa_installments_count' => ['required', 'integer', 'min:0'],
+            'preventa_installments_count' => $isSpecialLot ? ['nullable', 'integer', 'min:0'] : ['required', 'integer', 'min:0'],
             'is_custom_plan' => 'boolean',
+            'is_special_lot' => 'boolean',
             'promises' => 'nullable|array',
             'promises.*.expected_date' => 'required_with:promises|date',
             'promises.*.expected_amount' => 'required_with:promises|numeric|min:1',
             'promises.*.description' => 'required_with:promises|string',
+            'co_titular_ids' => 'nullable|array',
+            'co_titular_ids.*' => 'integer|distinct|exists:customers,id',
         ];
     }
 }

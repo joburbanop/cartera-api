@@ -57,6 +57,14 @@ class DashboardController extends Controller
         );
     }
 
+    public function proyectosActivos(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->dashboardMetricsService->proyectosActivos(),
+            'Proyectos activos obtenidos exitosamente.'
+        );
+    }
+
     public function recaudoMensual(): JsonResponse
     {
         return $this->successResponse(

@@ -32,60 +32,63 @@ class AmortizationCalculationService
         return $this->normalizeMoney(bcdiv($numerator, $denominator, 10));
     }
 
-
     public function calculateInterest(
-                string $balance,
-                string $monthlyRatePercent
-            ): string {
-                $balance = $this->normalizeMoney($balance);
-                $monthlyRatePercent = $this->normalizeMoney($monthlyRatePercent);
+        string $balance,
+        string $monthlyRatePercent
+    ): string {
+        $balance = $this->normalizeMoney($balance);
+        $monthlyRatePercent = $this->normalizeMoney($monthlyRatePercent);
 
-                $monthlyRate = bcdiv($monthlyRatePercent, '100', 10);
+        $monthlyRate = bcdiv($monthlyRatePercent, '100', 10);
 
-                return $this->normalizeMoney(
-                    bcmul($balance, $monthlyRate, 10)
-                );
-            }
-
-            public function calculatePrincipal(
-                string $installmentValue,
-                string $interestValue
-            ): string {
-                $installmentValue = $this->normalizeMoney($installmentValue);
-                $interestValue = $this->normalizeMoney($interestValue);
-
-                return $this->normalizeMoney(
-                    bcsub($installmentValue, $interestValue, 10)
-                );
-            }
-
-            public function calculateRemainingBalance(
-                string $balance,
-                string $principalValue
-            ): string {
-                $balance = $this->normalizeMoney($balance);
-                $principalValue = $this->normalizeMoney($principalValue);
-
-                $remainingBalance = bcsub(
-                    $balance,
-                    $principalValue,
-                    10
-                );
-
-                return $this->normalizeMoney(
-                    bccomp($remainingBalance, '0.00', 10) < 0
-                        ? '0.00'
-                        : $remainingBalance
-                );
+        return $this->normalizeMoney(
+            bcmul($balance, $monthlyRate, 10)
+        );
     }
 
+    public function calculatePrincipal(
+        string $installmentValue,
+        string $interestValue
+    ): string {
+        $installmentValue = $this->normalizeMoney($installmentValue);
+        $interestValue = $this->normalizeMoney($interestValue);
+
+        return $this->normalizeMoney(
+            bcsub($installmentValue, $interestValue, 10)
+        );
+    }
+
+    public function calculateRemainingBalance(
+        string $balance,
+        string $principalValue
+    ): string {
+        $balance = $this->normalizeMoney($balance);
+        $principalValue = $this->normalizeMoney($principalValue);
+
+        $remainingBalance = bcsub(
+            $balance,
+            $principalValue,
+            10
+        );
+
+        return $this->normalizeMoney(
+            bccomp($remainingBalance, '0.00', 10) < 0
+                ? '0.00'
+                : $remainingBalance
+        );
+    }
 
     public function buildSchedule(Contract $contract): array
     {
         $loanPrincipal = bcsub($this->normalizeMoney((string) $contract->sale_price), $this->normalizeMoney((string) $contract->down_payment_pactada), 2);
-        $months = max(1, (int) $contract->term_months);
+        $months = max(0, (int) ($contract->term_months ?? 0));
+        if ($contract->is_special_lot) {
+            $months = 0;
+        }
         $monthlyRate = bcdiv($this->normalizeMoney((string) $contract->interest_rate), '100', 10);
-        $fixedQuota = $this->calculateFixedQuota($loanPrincipal, (string) $contract->interest_rate, $months);
+        $fixedQuota = $months > 0
+            ? $this->calculateFixedQuota($loanPrincipal, (string) ($contract->interest_rate ?? '0'), $months)
+            : '0.00';
         $balance = $loanPrincipal;
         $schedule = [];
 

@@ -57,6 +57,35 @@ it('permite al administrador ver el detalle del cliente con sus contratos', func
         ->assertJsonPath('data.contracts.0.project.name', 'Proyecto Ficha');
 });
 
+it('incluye en la ficha del co-titular el contrato asociado por pivote', function () {
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    $principal = Customer::factory()->create(['name' => 'Principal Ficha']);
+    $coTitular = Customer::factory()->create(['name' => 'Co Ficha']);
+    $project = Project::query()->create([
+        'name' => 'Proyecto Co Ficha',
+        'description' => 'Fixture',
+        'location' => 'Bogotá',
+        'status' => 'active',
+    ]);
+    $lot = Lot::factory()->create([
+        'project_id' => $project->id,
+        'number' => 'L-CO-FICHA',
+    ]);
+
+    $contract = Contract::factory()->create([
+        'customer_id' => $principal->id,
+        'lot_id' => $lot->id,
+        'contract_number' => 'PROM-CO-FICHA',
+        'status' => 'activo',
+    ]);
+    $contract->syncHolders($principal->id, [$coTitular->id]);
+
+    $this->getJson("/api/customers/{$coTitular->id}")
+        ->assertOk()
+        ->assertJsonPath('data.contracts.0.contract_number', 'PROM-CO-FICHA');
+});
+
 it('responde 404 si el cliente no existe', function () {
     $this->actingAsRole(RoleName::ADMINISTRADOR->value);
 

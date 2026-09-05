@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 class FinancialTestSeeder extends Seeder
 {
+    /**
+     * @deprecated El lote 6 de San Miguel se importa desde el Excel histórico
+     *             (`import:san-miguel`). No se llama desde DatabaseSeeder.
+     */
     public function run(): void
     {
         DB::transaction(function () {

@@ -2,18 +2,18 @@
 
 namespace App\Http\Controllers\Sales;
 
-use App\Enums\AmortizationStatus;
 use App\Http\Controllers\Controller;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Services\Financial\Amortization\AdjustInstallmentDueDatesService;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Traits\ApiResponse;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 class AmortizationController extends Controller
@@ -21,7 +21,8 @@ class AmortizationController extends Controller
     use ApiResponse;
 
     public function __construct(
-        protected AmortizationService $amortizationService
+        protected AmortizationService $amortizationService,
+        protected AdjustInstallmentDueDatesService $adjustInstallmentDueDatesService,
     ) {}
 
     public function generate(Contract $contract): JsonResponse
@@ -46,11 +47,12 @@ class AmortizationController extends Controller
 
             return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
         } catch (\Exception $e) {
-            \Log::error('Error consultando amortización para contrato ' . $contract->id . ': ' . $e->getMessage());
+            Log::error('Error consultando amortización para contrato '.$contract->id.': '.$e->getMessage());
 
             return response()->json([
-                'error' => 'Falla interna al consultar el plan de amortización.',
-                'details' => $e->getMessage(),
+                'status' => 'error',
+                'message' => 'Ocurrió un error al procesar la solicitud',
+                'errors' => null,
             ], 500);
         }
     }
@@ -64,7 +66,8 @@ class AmortizationController extends Controller
             $plan = $this->amortizationService->generateInitialProjection($contract);
         }
 
-        $customer = $contract->customer;
+        $contract->loadMissing(['customer', 'customers', 'lot.project']);
+        $customer = $contract->primaryCustomer();
         $lot = $contract->lot;
         $project = $lot?->project;
 
@@ -83,50 +86,96 @@ class AmortizationController extends Controller
         return $pdf->download(sprintf('extracto-amortizacion-%s-v1.pdf', $label));
     }
 
+    public function previewInstallmentDueDate(
+        Contract $contract,
+        AmortizationInstallment $installment,
+        Request $request,
+    ): JsonResponse {
+        $this->assertInstallmentBelongsToContract($contract, $installment);
+
+        $validated = Validator::make($request->all(), [
+            'due_date' => ['required', 'date'],
+            'mode' => ['required', 'in:single,cascade'],
+            'cadence' => ['nullable', 'in:same_day,month_end'],
+        ])->validate();
+
+        $plan = $this->adjustInstallmentDueDatesService->preview(
+            $contract,
+            $installment,
+            (string) $validated['due_date'],
+            (string) $validated['mode'],
+            (string) ($validated['cadence'] ?? AdjustInstallmentDueDatesService::CADENCE_SAME_DAY),
+        );
+
+        return $this->successResponse($plan, 'Previsualización de vencimientos generada.');
+    }
+
     public function updateInstallmentDueDate(
         Contract $contract,
         AmortizationInstallment $installment,
         Request $request,
     ): JsonResponse {
-        if ((int) $installment->contract_id !== (int) $contract->id) {
-            abort(404);
-        }
+        $this->assertInstallmentBelongsToContract($contract, $installment);
 
-        if ((int) $installment->installment_number <= 0) {
-            throw ValidationException::withMessages([
-                'installment' => 'La cuota inicial no se puede modificar desde este flujo.',
-            ]);
-        }
-
-        $status = $installment->status instanceof AmortizationStatus
-            ? $installment->status->value
-            : (string) $installment->status;
-
-        if ($status === AmortizationStatus::PAID->value) {
-            throw ValidationException::withMessages([
-                'installment' => 'No se puede modificar la fecha de una cuota ya pagada.',
-            ]);
-        }
-
-        $validator = Validator::make($request->all(), [
+        $validated = Validator::make($request->all(), [
             'due_date' => ['required', 'date'],
-        ]);
-        $validated = $validator->validate();
+            'mode' => ['required', 'in:single,cascade'],
+            'cadence' => ['nullable', 'in:same_day,month_end'],
+            'confirm' => ['required', 'accepted'],
+        ])->validate();
 
-        $previousDueDate = Carbon::parse((string) $installment->due_date)->startOfDay();
-        $newDueDate = Carbon::parse((string) $validated['due_date'])->startOfDay();
-        $number = (int) $installment->installment_number;
+        $plan = $this->adjustInstallmentDueDatesService->apply(
+            $contract,
+            $installment,
+            (string) $validated['due_date'],
+            (string) $validated['mode'],
+            (string) ($validated['cadence'] ?? AdjustInstallmentDueDatesService::CADENCE_SAME_DAY),
+        );
+
+        return $this->successResponse(
+            [
+                'plan' => $plan,
+                'installment' => $installment->fresh(),
+                'contract' => $contract->fresh(),
+            ],
+            'Fechas de vencimiento actualizadas exitosamente.'
+        );
+    }
+
+    public function updateInstallmentPaymentDate(
+        Contract $contract,
+        AmortizationInstallment $installment,
+        Request $request,
+    ): JsonResponse {
+        $this->assertInstallmentBelongsToContract($contract, $installment);
+
+        $validated = Validator::make($request->all(), [
+            'payment_date' => ['required', 'date'],
+        ])->validate();
+
+        $previous = $installment->payment_date
+            ? Carbon::parse((string) $installment->payment_date)->toDateString()
+            : null;
+        $newDate = Carbon::parse((string) $validated['payment_date'])->toDateString();
 
         $installment->update([
-            'due_date' => $newDueDate->toDateString(),
+            'payment_date' => $newDate,
         ]);
+
+        $hasReceipt = filled($installment->receipt_number);
+        $hasTransactions = $contract->transactions()->exists();
+        $warning = null;
+
+        if ($hasReceipt || $hasTransactions) {
+            $warning = 'Esta fecha quedará distinta a la de la transacción o recibo original';
+        }
 
         $activity = activity()
             ->performedOn($contract)
             ->withProperties([
-                'before' => ['due_date' => $previousDueDate->toDateString()],
-                'after' => ['due_date' => $newDueDate->toDateString()],
                 'installment_number' => (int) $installment->installment_number,
+                'before' => ['payment_date' => $previous],
+                'after' => ['payment_date' => $newDate],
             ]);
 
         if (auth()->user()) {
@@ -134,15 +183,27 @@ class AmortizationController extends Controller
         }
 
         $activity->log(sprintf(
-            'Cambió la fecha de vencimiento de la cuota %d de %s a %s',
+            'Cambió la fecha de pago de la cuota %d de %s a %s',
             (int) $installment->installment_number,
-            $previousDueDate->format('d/m/Y'),
-            $newDueDate->format('d/m/Y'),
+            $previous ? Carbon::parse($previous)->format('d/m/Y') : '--',
+            Carbon::parse($newDate)->format('d/m/Y'),
         ));
 
         return $this->successResponse(
-            $installment->fresh(),
-            'Fecha de vencimiento actualizada exitosamente.'
+            [
+                'installment' => $installment->fresh(),
+                'warning' => $warning,
+            ],
+            'Fecha de pago actualizada exitosamente.'
         );
+    }
+
+    private function assertInstallmentBelongsToContract(
+        Contract $contract,
+        AmortizationInstallment $installment,
+    ): void {
+        if ((int) $installment->contract_id !== (int) $contract->id) {
+            abort(404);
+        }
     }
 }

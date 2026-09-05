@@ -67,7 +67,7 @@
 
     <div class="meta">
         <div>
-            <p><strong>Cliente:</strong> {{ $customer?->name ?? $customer?->first_name ?? 'No disponible' }}</p>
+            <p><strong>Titulares:</strong> {{ $contract->holderDisplayName() }}</p>
             <p><strong>Proyecto:</strong> {{ $project?->name ?? 'No disponible' }}</p>
             <p><strong>Lote:</strong> {{ $lot?->number ?? 'No disponible' }}</p>
         </div>
@@ -84,8 +84,8 @@
                 <th>Cuota</th>
                 <th>Vence</th>
                 <th>Cuota</th>
-                <th>Interés</th>
-                <th>Capital</th>
+                <th>Intereses</th>
+                <th>Capital Pagado</th>
                 <th>Saldo</th>
                 <th>Estado</th>
             </tr>
@@ -96,8 +96,8 @@
                     <td>{{ $row->installment_number === 0 ? 'Inicial' : $row->installment_number }}</td>
                     <td>{{ optional($row->due_date)->format('d/m/Y') ?? '--' }}</td>
                     <td class="right">$ {{ number_format((float) $row->installment_value, 2, ',', '.') }}</td>
-                    <td class="right">$ {{ number_format((float) $row->interest_value, 2, ',', '.') }}</td>
-                    <td class="right">$ {{ number_format((float) $row->principal_value, 2, ',', '.') }}</td>
+                    <td class="right">$ {{ number_format((float) ($row->interest_paid ?? 0), 2, ',', '.') }}</td>
+                    <td class="right">$ {{ number_format((float) ($row->principal_paid ?? 0), 2, ',', '.') }}</td>
                     <td class="right">$ {{ number_format((float) $row->remaining_balance, 2, ',', '.') }}</td>
                     <td>{{ $row->status->value ?? $row->status }}</td>
                 </tr>

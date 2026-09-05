@@ -83,7 +83,7 @@ class ActivityLogIndexTest extends TestCase
         $response = $this->getJson("/api/activity?subject_type=customer&subject_id={$this->customer->id}")
             ->assertOk();
 
-        $entries = $response->json('data');
+        $entries = $response->json('data.data');
 
         expect(collect($entries)->contains(fn (array $entry) =>
             $entry['description'] === 'Actualizó cliente'
@@ -166,7 +166,7 @@ class ActivityLogIndexTest extends TestCase
         $response = $this->getJson("/api/activity?subject_type=contract&subject_id={$this->contract->id}")
             ->assertOk();
 
-        $entries = $response->json('data');
+        $entries = $response->json('data.data');
 
         expect(collect($entries)->contains(fn (array $entry) =>
             $entry['description'] === 'Registró un pago de $1,000.00 mediante cash sobre el contrato'

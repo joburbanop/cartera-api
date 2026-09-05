@@ -4,6 +4,8 @@ namespace App\Enums;
 
 enum PaymentPromiseStatusEnum: string
 {
-    case PENDING = 'pending';
-    case PAID = 'paid';
+    case PAGADA = 'pagada';
+    case PARCIAL = 'parcial';
+    case VENCIDA = 'vencida';
+    case PENDIENTE = 'pendiente';
 }
