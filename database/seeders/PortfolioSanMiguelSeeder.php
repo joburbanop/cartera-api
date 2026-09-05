@@ -13,8 +13,8 @@ use Illuminate\Database\Seeder;
 class PortfolioSanMiguelSeeder extends Seeder
 {
     /**
-     * Seed the database with the related project, lots, customers and contracts
-     * for the San Miguel portfolio described in the sales sheet.
+     * Semilla de demostración. NO es la carga histórica de San Miguel.
+     * El histórico se importa con `php artisan import:san-miguel`.
      */
     public function run(): void
     {

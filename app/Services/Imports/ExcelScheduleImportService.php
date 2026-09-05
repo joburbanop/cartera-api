@@ -35,14 +35,15 @@ class ExcelScheduleImportService
     /**
      * @return array{before: array<string, mixed>, after: array<string, mixed>, imported: list<array<string, mixed>>, pending: int}
      */
-    public function preview(string $lotNumber): array
+    public function preview(string $lotNumber, ?string $workbookPath = null): array
     {
         $contract = $this->contract($lotNumber);
         $before = $this->snapshot($contract);
+        $path = $workbookPath ?? $this->workbookPath();
 
         DB::beginTransaction();
         try {
-            $imported = $this->applyToContract($contract, $lotNumber);
+            $imported = $this->applyToContract($contract, $lotNumber, $path);
             $after = $this->snapshot($contract->fresh());
             $pending = $contract->fresh()->amortizationInstallments()
                 ->where('installment_number', '>', 0)
@@ -63,21 +64,22 @@ class ExcelScheduleImportService
     /**
      * @return list<array<string, mixed>>
      */
-    public function apply(string $lotNumber): array
+    public function apply(string $lotNumber, ?string $workbookPath = null): array
     {
         $contract = $this->contract($lotNumber);
+        $path = $workbookPath ?? $this->workbookPath();
 
-        return DB::transaction(function () use ($contract, $lotNumber) {
-            return $this->applyToContract($contract, $lotNumber);
+        return DB::transaction(function () use ($contract, $lotNumber, $path) {
+            return $this->applyToContract($contract, $lotNumber, $path);
         });
     }
 
     /**
      * @return list<array<string, mixed>>
      */
-    private function applyToContract(Contract $contract, string $lotNumber): array
+    private function applyToContract(Contract $contract, string $lotNumber, string $workbookPath): array
     {
-        $rows = $this->paidExcelRows($lotNumber);
+        $rows = $this->paidExcelRows($lotNumber, $workbookPath);
         if ($rows === []) {
             if ($contract->amortizationInstallments()->where('installment_number', '>', 0)->doesntExist()) {
                 $this->restoreUnpaidFrenchSchedule($contract);
@@ -156,9 +158,9 @@ class ExcelScheduleImportService
     /**
      * @return list<array<string, mixed>>
      */
-    public function paidExcelRows(string $lotNumber): array
+    public function paidExcelRows(string $lotNumber, ?string $workbookPath = null): array
     {
-        $path = $this->workbookPath();
+        $path = $workbookPath ?? $this->workbookPath();
         $title = 'LOTE '.$lotNumber;
         $reader = IOFactory::createReaderForFile($path);
         $reader->setReadDataOnly(true);

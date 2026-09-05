@@ -7,7 +7,7 @@ use Illuminate\Console\Command;
 
 class ImportSanMiguelCommand extends Command
 {
-    protected $signature = 'import:san-miguel {archivo=app/imports/SAN_MIGUEL_AMORTIZACION_Y_PAGOS.xlsx} {--dry-run : Recorre el Excel sin escribir en la base de datos} {--solo-lote= : Importa solo la pestaña LOTE N}';
+    protected $signature = 'import:san-miguel {archivo=app/imports/SAN_MIGUEL_AMORTIZACION_Y_PAGOS.xlsx} {--dry-run : Recorre el Excel sin escribir en la base de datos} {--solo-lote= : Importa solo la pestaña LOTE N} {--fresh : Borra contratos de San Miguel (incl. PRUEBA) antes de importar}';
 
     protected $description = 'Importa el histórico de lotes del proyecto San Miguel desde el Excel de hojas de vida';
 
@@ -23,13 +23,21 @@ class ImportSanMiguelCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $soloLote = $this->option('solo-lote');
         $soloLote = is_string($soloLote) && trim($soloLote) !== '' ? trim($soloLote) : null;
+        $fresh = (bool) $this->option('fresh');
+        if ($fresh && $dryRun) {
+            $this->warn('--fresh se ignora en --dry-run (no se borra nada).');
+            $fresh = false;
+        }
         $this->info($dryRun ? 'Modo validación (--dry-run): no se escribirá nada en la base de datos.' : 'Importación real: cada lote en su propia transacción.');
+        if ($fresh) {
+            $this->warn('Fase 0 (--fresh): se borrarán contratos de San Miguel, incluido PRUEBA.');
+        }
         $this->line('Archivo: '.$path);
         if ($soloLote !== null) {
             $this->line('Solo lote: '.$soloLote);
         }
 
-        $report = $service->import($path, $dryRun, $soloLote);
+        $report = $service->import($path, $dryRun, $soloLote, $fresh);
         if ($soloLote !== null && $report['sheets'] === 0) {
             $this->error("No hay pestaña LOTE {$soloLote} en el archivo.");
 
@@ -147,6 +155,23 @@ class ImportSanMiguelCommand extends Command
                 foreach ($report['failed'] as $failed) {
                     $this->error(sprintf('  %s: %s', $failed['sheet'], $failed['reason']));
                 }
+            }
+        }
+
+        if (! empty($report['fresh'])) {
+            $this->newLine();
+            $this->info('Fase 0 (--fresh): contratos borrados='.$report['fresh']['contracts'].' lotes a disponible='.$report['fresh']['lots_reset']);
+        }
+
+        $historical = $report['historical'] ?? null;
+        if (is_array($historical)) {
+            $this->newLine();
+            if (! empty($historical['skipped'])) {
+                $this->line('Fases 2-4: omitidas ('.($historical['reason'] ?? 'n/a').')');
+            } else {
+                $this->info('Fase 2 overlay: '.count($historical['overlay_lots'] ?? []).' lotes');
+                $this->info('Fase 3 abonos huérfanos: '.count($historical['orphan_extras'] ?? []).' lotes');
+                $this->info('Fase 4 vencimientos: '.count($historical['due_dates'] ?? []).' lotes');
             }
         }
 

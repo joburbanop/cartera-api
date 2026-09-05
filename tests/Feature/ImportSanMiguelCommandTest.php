@@ -110,6 +110,7 @@ it('importa un lote variable y uno especial usando los servicios reales', functi
 
     $this->artisan('import:san-miguel', ['archivo' => $path])
         ->expectsOutputToContain('Lotes importados: 2')
+        ->expectsOutputToContain('libro no oficial')
         ->assertSuccessful();
 
     $variable = Contract::query()->where('contract_number', 'SM-LOTE-7')->firstOrFail();
@@ -186,6 +187,23 @@ it('registra pagos históricos aunque la obligación ya esté cumplida', functio
 
     expect((float) $unapplied->amount)->toBe(5000.0)
         ->and($contract->transactions()->count())->toBe(3);
+
+    unlink($path);
+});
+
+it('con --fresh borra contratos San Miguel y vuelve a importar el fixture', function () {
+    $path = sanMiguelFixturePath();
+
+    $this->artisan('import:san-miguel', ['archivo' => $path])->assertSuccessful();
+    expect(Contract::query()->count())->toBe(2);
+
+    $this->artisan('import:san-miguel', ['archivo' => $path, '--fresh' => true])
+        ->expectsOutputToContain('Fase 0 (--fresh)')
+        ->assertSuccessful();
+
+    expect(Contract::query()->count())->toBe(2)
+        ->and(Contract::query()->where('contract_number', 'SM-LOTE-7')->exists())->toBeTrue()
+        ->and(Contract::query()->where('contract_number', 'SM-LOTE-30')->exists())->toBeTrue();
 
     unlink($path);
 });
