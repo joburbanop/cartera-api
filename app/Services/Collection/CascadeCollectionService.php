@@ -272,7 +272,7 @@ class CascadeCollectionService
                 $query->where('quota_debt', '>', 0)
                     ->orWhere('remaining_balance', '>', 0);
             })
-            ->whereDate('due_date', '>', $transactionDate->toDateString())
+            ->whereDate('due_date', '>=', $transactionDate->toDateString())
             ->orderBy('due_date', 'asc')
             ->orderBy('installment_number', 'asc');
 

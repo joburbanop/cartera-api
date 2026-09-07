@@ -11,6 +11,7 @@ use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -51,6 +52,10 @@ class AppServiceProvider extends ServiceProvider
 
         Transaction::observe(TransactionObserver::class);
 
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
+
         // Interceptamos la validación del Token
         Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, $isValid) {
             if (!$isValid) {
@@ -59,7 +64,7 @@ class AppServiceProvider extends ServiceProvider
 
             // Calculamos el tiempo desde la última petición que hizo el usuario
             $lastActivity = $token->last_used_at ?? $token->created_at;
-            $inactivityLimit = env('SANCTUM_TOKEN_INACTIVITY', 5);
+            $inactivityLimit = (int) config('sanctum.token_inactivity_minutes', 5);
 
             // Si el tiempo sin actividad supera nuestros 5 minutos...
             if (now()->diffInMinutes($lastActivity) >= $inactivityLimit) {

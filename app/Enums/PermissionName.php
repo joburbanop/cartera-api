@@ -14,6 +14,7 @@ enum PermissionName: string
     case BITACORA_VIEW = 'bitacora.view';
 
     case USERS_MANAGE = 'users.manage';
+    /** Reservado: gestión de roles desde la UI (función planeada). */
     case ROLES_MANAGE = 'roles.manage';
 
     case PROJECTS_MANAGE = 'projects.manage';
@@ -24,6 +25,7 @@ enum PermissionName: string
     case PAYMENTS_REGISTER = 'payments.register';
     case EXTRAORDINARY_PAYMENTS_APPLY = 'extraordinary-payments.apply';
     case CONTRACTS_REFINANCE = 'contracts.refinance';
+    /** Reservado: desistimiento de contrato (función planeada, UI «Próximamente»). */
     case CONTRACTS_RESCIND = 'contracts.rescind';
 
     /**

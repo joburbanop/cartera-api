@@ -12,6 +12,7 @@ use App\Models\Lot;
 use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Support\FinancialRules;
 use App\Support\SafeUploadedFileName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -188,7 +189,7 @@ class DownPaymentService
 
     private function residualIsWithinCompletionTolerance(string $residual): bool
     {
-        return bccomp($residual, '500.00', 2) < 0;
+        return FinancialRules::residualIsWithinCompletionTolerance($residual);
     }
 
     private function normalizeMoney(string $value): string

@@ -46,7 +46,7 @@ class CreateContractDTO
 
         return new self(
             contractNumber: $request->validated('contract_number'),
-            customerId: (int) $request->validated('customer_id'),
+            customerId: (int) ($request->validated('customer_id') ?: $request->input('customer_id')),
             lotId: $request->validated('lot_id'),
             sellerName: $request->validated('seller_name'),
             salePrice: $salePrice,

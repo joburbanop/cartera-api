@@ -140,8 +140,7 @@ class SearchService
 
     private function canSeeClients(User $user): bool
     {
-        return $user->can('customers.view')
-            || $user->can(PermissionName::CUSTOMERS_MANAGE->value);
+        return $user->can(PermissionName::CUSTOMERS_MANAGE->value);
     }
 
     private function canSeeContracts(User $user): bool

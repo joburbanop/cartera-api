@@ -41,10 +41,6 @@ class AmortizationController extends Controller
         try {
             $plan = $contract->installments()->get();
 
-            if ($plan->isEmpty()) {
-                $plan = $this->amortizationService->generateInitialProjection($contract);
-            }
-
             return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
         } catch (\Exception $e) {
             Log::error('Error consultando amortización para contrato '.$contract->id.': '.$e->getMessage());
@@ -63,7 +59,7 @@ class AmortizationController extends Controller
         $plan = $contract->installments()->get();
 
         if ($plan->isEmpty()) {
-            $plan = $this->amortizationService->generateInitialProjection($contract);
+            return $this->errorResponse('Este contrato no tiene un plan de amortización generado.', 404);
         }
 
         $contract->loadMissing(['customer', 'customers', 'lot.project']);

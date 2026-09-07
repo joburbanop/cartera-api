@@ -54,6 +54,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Token Inactivity Minutes
+    |--------------------------------------------------------------------------
+    |
+    | Minutes without requests after which a personal access token is revoked.
+    | Read via config() so `php artisan config:cache` still honours .env.
+    |
+    */
+
+    'token_inactivity_minutes' => (int) env('SANCTUM_TOKEN_INACTIVITY', 5),
+
+    /*
+    |--------------------------------------------------------------------------
     | Token Prefix
     |--------------------------------------------------------------------------
     |

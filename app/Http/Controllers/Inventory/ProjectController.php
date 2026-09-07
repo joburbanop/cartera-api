@@ -25,7 +25,7 @@ class ProjectController extends Controller
     {
         $dto = CreateProjectDTO::fromRequest($request);
         
-        $userId = auth()->id() ?? 1; // ID temporal de prueba
+        $userId = $this->authenticatedUserId();
 
         $project = $this->projectService->createProject($dto, $userId);
 
@@ -46,7 +46,7 @@ class ProjectController extends Controller
         try {
             $dto = UpdateProjectDTO::fromRequest($request);
 
-            $userId = auth()->id() ?? 1;
+            $userId = $this->authenticatedUserId();
 
             $project = $this->projectService->updateProject(
                 $project,
@@ -69,7 +69,7 @@ class ProjectController extends Controller
    public function archive(Project $project): JsonResponse
     {
         try {
-            $userId = auth()->id() ?? 1;
+            $userId = $this->authenticatedUserId();
 
             $project = $this->projectService->archiveProject(
                 $project,
@@ -91,7 +91,7 @@ class ProjectController extends Controller
     public function activate(Project $project): JsonResponse
     {
         try {
-            $userId = auth()->id() ?? 1;
+            $userId = $this->authenticatedUserId();
 
             $project = $this->projectService->activateProject(
                 $project,

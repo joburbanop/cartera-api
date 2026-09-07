@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\AmortizationStatus;
+use App\Support\DueDateRules;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -44,5 +46,13 @@ class AmortizationInstallment extends Model
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
+    }
+
+    /**
+     * Cuotas con due_date estrictamente anterior a $asOf (por defecto hoy).
+     */
+    public function scopeCalendarOverdue(Builder $query, mixed $asOf = null): Builder
+    {
+        return $query->whereDate('due_date', '<', DueDateRules::asOfDate($asOf));
     }
 } 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Financial\Amortization\AmortizationCalculationService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,6 +15,11 @@ class StoreContractRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $customerId = $this->input('customer_id');
+        if ($customerId === '' || $customerId === '0' || $customerId === 0) {
+            $this->merge(['customer_id' => null]);
+        }
+
         if (! $this->boolean('is_special_lot')) {
             return;
         }
@@ -42,15 +48,13 @@ class StoreContractRequest extends FormRequest
             return 0.0;
         }
 
-        $i = ($interestRate / 100);
+        $pmt = (new AmortizationCalculationService())->calculateFixedQuota(
+            number_format($principal, 2, '.', ''),
+            number_format($interestRate, 2, '.', ''),
+            $termMonths,
+        );
 
-        if ($i === 0.0) {
-            return round($principal, 2);
-        }
-
-        $pmt = $principal * (($i * pow(1 + $i, $termMonths)) / (pow(1 + $i, $termMonths) - 1));
-
-        return round($pmt * $termMonths, 2);
+        return (float) bcmul($pmt, (string) $termMonths, 2);
     }
 
     public static function calculateCustomPlanVariance(float $expectedFutureValue, float $totalCustom): float
@@ -99,10 +103,10 @@ class StoreContractRequest extends FormRequest
 
         return [
             'contract_number' => 'required|string|max:100|unique:contracts,contract_number',
-            'customer_id' => 'nullable|integer',
-            'customer_name' => 'nullable|string|max:150',
-            'customer_document' => 'nullable|string|max:50',
-            'customer_phone' => 'nullable|string|max:20',
+            'customer_id' => 'nullable|integer|exists:customers,id',
+            'customer_name' => 'required_without:customer_id|nullable|string|max:150',
+            'customer_document' => 'required_without:customer_id|nullable|string|max:50',
+            'customer_phone' => 'required_without:customer_id|nullable|string|max:20',
             'customer_email' => 'nullable|email|max:150',
             'lot_id' => [
                 'required',
@@ -134,6 +138,16 @@ class StoreContractRequest extends FormRequest
             'promises.*.description' => 'required_with:promises|string',
             'co_titular_ids' => 'nullable|array',
             'co_titular_ids.*' => 'integer|distinct|exists:customers,id',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'customer_name.required_without' => 'Indica el nombre del cliente o un customer_id válido.',
+            'customer_document.required_without' => 'Indica el documento del cliente o un customer_id válido.',
+            'customer_phone.required_without' => 'Indica el teléfono del cliente o un customer_id válido.',
+            'customer_id.exists' => 'El cliente indicado no existe.',
         ];
     }
 }

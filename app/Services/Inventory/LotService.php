@@ -8,7 +8,6 @@ use App\Enums\AmortizationStatus;
 use App\Enums\LotStatus;
 use App\Enums\LotType;
 use App\Models\Lot;
-use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -159,11 +158,7 @@ class LotService
                 '!=',
                 AmortizationStatus::PAID->value
             )
-            ->whereDate(
-                'due_date',
-                '<=',
-                Carbon::today()->toDateString()
-            );
+            ->calendarOverdue();
     }
 
     public function updateLot(

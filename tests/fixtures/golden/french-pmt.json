@@ -1,0 +1,34 @@
+{
+  "rounding": "half_up_2",
+  "rate_is_monthly_percent": true,
+  "cases": [
+    {
+      "id": "zero_rate_divides_principal",
+      "principal": "1000.00",
+      "monthly_rate_percent": "0.00",
+      "months": 10,
+      "pmt": "100.00"
+    },
+    {
+      "id": "single_month_is_principal_plus_interest",
+      "principal": "100000.00",
+      "monthly_rate_percent": "1.00",
+      "months": 1,
+      "pmt": "101000.00"
+    },
+    {
+      "id": "san_miguel_lote1_financed",
+      "principal": "144701730.00",
+      "monthly_rate_percent": "1.00",
+      "months": 60,
+      "pmt": "3218810.06"
+    },
+    {
+      "id": "half_up_boundary",
+      "principal": "100.00",
+      "monthly_rate_percent": "1.00",
+      "months": 3,
+      "pmt": "34.00"
+    }
+  ]
+}

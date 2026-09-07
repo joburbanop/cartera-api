@@ -24,7 +24,7 @@ class CustomerController extends Controller
     public function store(StoreCustomerRequest $request): JsonResponse
     {
         $dto = CreateCustomerDTO::fromRequest($request);
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $customer = $this->customerService->createCustomer($dto, $userId);
 
@@ -42,7 +42,7 @@ class CustomerController extends Controller
         $model = Customer::findOrFail($customer);
 
         $dto = UpdateCustomerDTO::fromRequest($request);
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $customer = $this->customerService->updateCustomer(
             $model,

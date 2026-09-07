@@ -110,3 +110,28 @@ it('permite a socio_gerencia consultar el resumen y niega a admin_sistema', func
 
     $this->getJson('/api/dashboard/cartera-vencida-resumen')->assertForbidden();
 });
+
+it('no cuenta como vencida una cuota que vence hoy', function () {
+    $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+
+    createResumenInstallment([
+        'installment_number' => 1,
+        'due_date' => now()->toDateString(),
+        'status' => AmortizationStatus::PENDING->value,
+    ]);
+
+    createResumenInstallment([
+        'installment_number' => 2,
+        'due_date' => now()->subDay()->toDateString(),
+        'status' => AmortizationStatus::PENDING->value,
+    ]);
+
+    $this->getJson('/api/dashboard/cartera-vencida-resumen')
+        ->assertOk()
+        ->assertJsonPath('data.vencidas', 1)
+        ->assertJsonPath('data.al_dia', 1);
+
+    $this->getJson('/api/dashboard/cartera-mora')
+        ->assertOk()
+        ->assertJsonPath('data.cantidad_cuotas_vencidas', 1);
+});

@@ -1,0 +1,37 @@
+{
+  "cases": [
+    {
+      "id": "pending_uses_theoretical_split",
+      "installment_number": 3,
+      "interest_paid": "0.00",
+      "principal_paid": "0.00",
+      "interest_value": "994490.96",
+      "principal_value": "1273535.13",
+      "quota_debt": "2268026.09",
+      "expected_interest": 994490.96,
+      "expected_amortization": 1273535.13
+    },
+    {
+      "id": "paid_uses_collected_split",
+      "installment_number": 1,
+      "interest_paid": "1019592.00",
+      "principal_paid": "1248808.00",
+      "interest_value": "1019592.00",
+      "principal_value": "1248808.00",
+      "quota_debt": "0.00",
+      "expected_interest": 1019592.0,
+      "expected_amortization": 1248808.0
+    },
+    {
+      "id": "partial_initial_uses_pactada_minus_debt",
+      "installment_number": 0,
+      "interest_paid": "0.00",
+      "principal_paid": "0.00",
+      "interest_value": "0.00",
+      "principal_value": "16077970.00",
+      "quota_debt": "5577970.00",
+      "expected_interest": 0.0,
+      "expected_amortization": 10500000.0
+    }
+  ]
+}

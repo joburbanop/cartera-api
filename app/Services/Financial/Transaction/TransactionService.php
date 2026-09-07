@@ -3,7 +3,6 @@
 namespace App\Services\Financial\Transaction;
 
 use App\DTOs\CreateTransactionDTO;
-use App\Enums\AmortizationStatus;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
@@ -22,91 +21,20 @@ class TransactionService
         private InstallmentPaymentAllocator $allocator,
     ) {}
 
-    private function normalizeSurplus(string $surplus): string
-    {
-        if (bccomp($surplus, '0.00', 2) <= 0) {
-            return '0.00';
-        }
-
-        return bccomp($surplus, '2.00', 2) <= 0 ? '0.00' : $surplus;
-    }
-
     public function calculatePaymentImpactForInstallment(
         AmortizationInstallment $plan,
         string $paymentAmount,
         ?Contract $contract = null,
     ): array {
-        $installmentValue = (string) ($plan->installment_value ?? '0.00');
-        $interestValue = (string) ($plan->interest_value ?? '0.00');
-        $principalValue = (string) ($plan->principal_value ?? bcsub($installmentValue, $interestValue, 2));
-        $interestAlreadyPaid = (string) ($plan->interest_paid ?? '0.00');
-        $principalAlreadyPaid = (string) ($plan->principal_paid ?? '0.00');
-        $currentQuotaDebt = (string) ($plan->quota_debt ?? '0.00');
+        $impact = $this->allocator->computeImpact($plan, $paymentAmount, $contract);
         $projectedBalance = (string) ($plan->projected_balance ?? $plan->remaining_balance ?? '0.00');
 
-        $pendingDebt = bccomp($currentQuotaDebt, '0.00', 2) > 0
-            ? $currentQuotaDebt
-            : bcsub($installmentValue, bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2), 2);
-
-        $pendingDebt = max('0.00', $pendingDebt);
-
-        if (bccomp($paymentAmount, $pendingDebt, 2) < 0) {
-            $interestPaidNow = bccomp($paymentAmount, bcsub($interestValue, $interestAlreadyPaid, 2), 2) <= 0
-                ? $paymentAmount
-                : bcsub($interestValue, $interestAlreadyPaid, 2);
-
-            $paymentLeftForCapital = bcsub($paymentAmount, $interestPaidNow, 2);
-            $remainingPrincipalToPay = bcsub($principalValue, $principalAlreadyPaid, 2);
-            $principalPaidNow = bccomp($paymentLeftForCapital, $remainingPrincipalToPay, 2) <= 0
-                ? $paymentLeftForCapital
-                : $remainingPrincipalToPay;
-
-            $newInterestPaid = bcadd($interestAlreadyPaid, $interestPaidNow, 2);
-            $newPrincipalPaid = bcadd($principalAlreadyPaid, $principalPaidNow, 2);
-            $updatedQuotaDebt = max('0.00', bcsub($pendingDebt, $paymentAmount, 2));
-
-            if (bccomp($updatedQuotaDebt, '500.00', 2) < 0) {
-                return [
-                    'status' => AmortizationStatus::PAID,
-                    'quota_debt' => '0.00',
-                    'interest_paid' => $interestValue,
-                    'principal_paid' => $principalValue,
-                    'excedente' => '0.00',
-                    'remaining_balance' => $projectedBalance,
-                ];
-            }
-
-            $status = $this->allocator->resolvePartialStatus($plan, $contract);
-
-            return [
-                'status' => $status,
-                'quota_debt' => $updatedQuotaDebt,
-                'interest_paid' => $newInterestPaid,
-                'principal_paid' => $newPrincipalPaid,
-                'excedente' => '0.00',
-                'remaining_balance' => $projectedBalance,
-            ];
-        }
-
-        if (bccomp($paymentAmount, $pendingDebt, 2) === 0) {
-            return [
-                'status' => AmortizationStatus::PAID,
-                'quota_debt' => '0.00',
-                'interest_paid' => $interestValue,
-                'principal_paid' => $principalValue,
-                'excedente' => '0.00',
-                'remaining_balance' => $projectedBalance,
-            ];
-        }
-
-        $surplus = $this->normalizeSurplus(bcsub($paymentAmount, $pendingDebt, 2));
-
         return [
-            'status' => AmortizationStatus::PAID,
-            'quota_debt' => '0.00',
-            'interest_paid' => $interestValue,
-            'principal_paid' => $principalValue,
-            'excedente' => $surplus,
+            'status' => $impact['status'],
+            'quota_debt' => $impact['quota_debt'],
+            'interest_paid' => $impact['interest_paid'],
+            'principal_paid' => $impact['principal_paid'],
+            'excedente' => $impact['excedente'],
             'remaining_balance' => $projectedBalance,
         ];
     }

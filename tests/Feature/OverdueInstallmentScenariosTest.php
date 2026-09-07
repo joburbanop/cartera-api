@@ -114,7 +114,7 @@ function overdueScenarioRow(Contract $contract, int $number)
     return $contract->amortizationInstallments()->where('installment_number', $number)->first();
 }
 
-it('aplica un pago parcial sobre la cuota vencida: interés primero, quota_debt exacto, status partial y remaining_balance intacto', function () {
+it('aplica un pago parcial sobre la cuota vencida: interés primero, quota_debt exacto, status overdue y remaining_balance intacto', function () {
     $contract = overdueDateScenariosContract();
     $four = overdueScenarioRow($contract, 4);
     $remainingBefore = (string) $four->remaining_balance;
@@ -136,7 +136,7 @@ it('aplica un pago parcial sobre la cuota vencida: interés primero, quota_debt 
         ->and(number_format((float) $four->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $four->principal_paid, 2, '.', ''))->toBe('300.00')
         ->and($four->quota_debt)->toBe('500.00')
-        ->and($four->status)->toBe(AmortizationStatus::PARTIAL)
+        ->and($four->status)->toBe(AmortizationStatus::OVERDUE)
         ->and($four->remaining_balance)->toBe($remainingBefore)
         ->and($four->projected_balance)->toBe('2000.00')
         ->and($five->quota_debt)->toBe('1000.00')
@@ -199,10 +199,10 @@ it('reparte un pago explícito de varias cuotas de la más antigua a la más nue
         ->and(number_format((float) $four->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $four->principal_paid, 2, '.', ''))->toBe('800.00')
         ->and($four->remaining_balance)->toBe('2000.00')
-        ->and($five->status)->toBe(AmortizationStatus::PARTIAL)
-        ->and($five->quota_debt)->toBe('300.00')
+        ->and($five->status)->toBe(AmortizationStatus::PAID)
+        ->and($five->quota_debt)->toBe('0.00')
         ->and(number_format((float) $five->interest_paid, 2, '.', ''))->toBe('150.00')
-        ->and(number_format((float) $five->principal_paid, 2, '.', ''))->toBe('550.00')
+        ->and(number_format((float) $five->principal_paid, 2, '.', ''))->toBe('850.00')
         ->and($five->remaining_balance)->toBe('1000.00');
 });
 
@@ -320,10 +320,10 @@ it('aplica el dinero primero a la vencida aunque solo se seleccione una cuota fu
         ->and(number_format((float) $four->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $four->principal_paid, 2, '.', ''))->toBe('800.00')
         ->and($four->remaining_balance)->toBe('2000.00')
-        ->and($five->status)->toBe(AmortizationStatus::PARTIAL)
-        ->and($five->quota_debt)->toBe('300.00')
+        ->and($five->status)->toBe(AmortizationStatus::PAID)
+        ->and($five->quota_debt)->toBe('0.00')
         ->and(number_format((float) $five->interest_paid, 2, '.', ''))->toBe('150.00')
-        ->and(number_format((float) $five->principal_paid, 2, '.', ''))->toBe('550.00')
+        ->and(number_format((float) $five->principal_paid, 2, '.', ''))->toBe('850.00')
         ->and($five->remaining_balance)->toBe('1000.00');
 });
 
@@ -344,7 +344,7 @@ it('deja la cuota seleccionada intacta si el monto no cubre la vencida, sin rech
     $five = $five->fresh();
 
     expect($result['amount_applied'])->toBe('400.00')
-        ->and($four->status)->toBe(AmortizationStatus::PARTIAL)
+        ->and($four->status)->toBe(AmortizationStatus::OVERDUE)
         ->and($four->quota_debt)->toBe('600.00')
         ->and(number_format((float) $four->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $four->principal_paid, 2, '.', ''))->toBe('200.00')

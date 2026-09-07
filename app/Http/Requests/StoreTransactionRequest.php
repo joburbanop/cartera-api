@@ -4,24 +4,22 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class StoreTransactionRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
     /**
-     * Get the validation rules that apply to the request.
-     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
+        $contractId = (int) $this->route('contractId');
+
         return [
             'amount' => 'required|numeric|gt:0',
             'transaction_date' => 'nullable|date',
@@ -32,11 +30,28 @@ class StoreTransactionRequest extends FormRequest
             'surplus_action' => 'nullable|in:reducir_plazo,reducir_cuota,adelantar_cuotas,reduce_time,reduce_quota,transfer',
             'recalculation_type' => 'nullable|in:reducir_plazo,reducir_cuota,adelantar_cuotas,reduce_time,reduce_quota,transfer',
             'installment_numbers' => 'nullable|array',
-            'installment_numbers.*' => 'integer|min:0|exists:amortization_installments,id',
+            'installment_numbers.*' => [
+                'integer',
+                'min:0',
+                Rule::exists('amortization_installments', 'id')
+                    ->where(fn ($query) => $query->where('contract_id', $contractId)),
+            ],
             'selected_installments' => 'required|array',
-            'selected_installments.*' => 'integer|exists:amortization_installments,id',
+            'selected_installments.*' => [
+                'integer',
+                Rule::exists('amortization_installments', 'id')
+                    ->where(fn ($query) => $query->where('contract_id', $contractId)),
+            ],
             'receipt' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
             'receipt_number' => 'nullable|string|max:50',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'selected_installments.*.exists' => 'La cuota no pertenece a este contrato.',
+            'installment_numbers.*.exists' => 'La cuota no pertenece a este contrato.',
         ];
     }
 }

@@ -24,7 +24,7 @@ class LotController extends Controller
     public function store(StoreLotRequest $request): JsonResponse
     {
         $dto = CreateLotDTO::fromRequest($request);
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $lot = $this->lotService->createLot($dto, $userId);
 
@@ -87,7 +87,7 @@ class LotController extends Controller
         Lot $lot
     ): JsonResponse {
         $dto = UpdateLotDTO::fromRequest($request);
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $lot = $this->lotService->updateLot(
             $lot,
@@ -103,7 +103,7 @@ class LotController extends Controller
 
     public function archive(Lot $lot): JsonResponse
     {
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $this->lotService->archiveLot(
             $lot,
@@ -120,7 +120,7 @@ class LotController extends Controller
     {
         $lotModel = Lot::withTrashed()->findOrFail($lot);
 
-        $userId = auth()->id() ?? 1;
+        $userId = $this->authenticatedUserId();
 
         $lot = $this->lotService->activateLot(
             $lotModel,

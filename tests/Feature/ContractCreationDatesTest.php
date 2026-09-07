@@ -64,6 +64,56 @@ it('requires a valid first installment date in the contract request', function (
         ->toContain('date');
 });
 
+it('rejects contract creation without customer_id and without customer name document and phone', function () {
+    Schema::create('lots', function (Blueprint $table) {
+        $table->id();
+        $table->string('number')->nullable();
+        $table->timestamps();
+    });
+
+    DB::table('lots')->insert(['id' => 11, 'number' => 'LOT-11']);
+
+    Schema::create('contracts', function (Blueprint $table) {
+        $table->id();
+        $table->string('contract_number')->unique();
+        $table->unsignedBigInteger('customer_id')->nullable();
+        $table->unsignedBigInteger('lot_id');
+        $table->string('seller_name')->nullable();
+        $table->decimal('sale_price', 15, 2);
+        $table->decimal('down_payment_pactada', 15, 2);
+        $table->integer('term_months');
+        $table->decimal('interest_rate', 5, 2)->default(1.00);
+        $table->date('start_date');
+        $table->date('initial_payment_date');
+        $table->date('first_installment_date');
+        $table->date('regular_payment_start_date');
+        $table->integer('preventa_installments_count')->default(0);
+        $table->string('status')->default('preventa_inactiva');
+        $table->timestamps();
+        $table->softDeletes();
+    });
+
+    $validator = Validator::make([
+        'contract_number' => 'CTR-SIN-CLIENTE-001',
+        'lot_id' => 11,
+        'seller_name' => 'Ana',
+        'sale_price' => 250000000,
+        'down_payment_pactada' => 50000000,
+        'term_months' => 24,
+        'interest_rate' => 1.00,
+        'start_date' => '2026-08-01',
+        'initial_payment_date' => '2026-08-10',
+        'first_installment_date' => '2026-10-15',
+        'regular_payment_start_date' => '2026-10-15',
+        'preventa_installments_count' => 2,
+    ], (new StoreContractRequest)->rules());
+
+    expect($validator->fails())->toBeTrue()
+        ->and($validator->errors()->has('customer_name'))->toBeTrue()
+        ->and($validator->errors()->has('customer_document'))->toBeTrue()
+        ->and($validator->errors()->has('customer_phone'))->toBeTrue();
+});
+
 it('allows contract creation without customer_id when customer information is provided for auto-registration', function () {
     Schema::create('lots', function (Blueprint $table) {
         $table->id();

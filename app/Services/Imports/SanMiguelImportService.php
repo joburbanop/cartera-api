@@ -23,6 +23,7 @@ use App\Models\User;
 use App\Services\Collection\CascadeCollectionService;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\Sales\ContractService;
+use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -310,7 +311,7 @@ class SanMiguelImportService
             ->sum('amount');
         $pending = bcsub((string) $contract->down_payment_pactada, (string) $totalPaid, 2);
 
-        if (bccomp($pending, '500.00', 2) < 0) {
+        if (FinancialRules::residualIsWithinCompletionTolerance($pending)) {
             $this->applyCascadePayment($contract, $payment, $payment->amount, $notes);
 
             return;

@@ -50,6 +50,8 @@ Sigue estos pasos para levantar el backend en tu entorno local:
 
    *Edita el archivo `.env` y ajusta los parámetros de conexión a tu base de datos PostgreSQL.*
 
+   CORS: en local se permiten `http://localhost:4200` y `http://127.0.0.1:4200`. En producción usa `.env.production.example` y sigue `DEPLOYMENT.md`.
+
 4. **Generar la llave de la aplicación:**
 
    ```bash
@@ -62,7 +64,20 @@ Sigue estos pasos para levantar el backend en tu entorno local:
    php artisan migrate
    ```
 
-6. **Iniciar el servidor local (con Herd o Artisan):**
+6. **Roles y primer usuario**
+
+   En **desarrollo local**, `php artisan db:seed` crea roles y usuarios de demostración (`admin@admin.com`, `socio@cartera.test`, `sistema@cartera.test`) con la clave de `SEED_USER_PASSWORD` (por defecto `password`). Eso **no ocurre** si `APP_ENV=production`.
+
+   En un **servidor nuevo**, no uses esas cuentas. Tras `migrate`:
+
+   ```bash
+   php artisan db:seed --class=RolesAndPermissionsSeeder
+   php artisan user:create "Nombre Apellido" admin@tuempresa.com admin_sistema
+   ```
+
+   El comando pide la contraseña por prompt (mínimo 8 caracteres) y no la deja en el código. Roles válidos: `admin_sistema`, `administrador`, `socio_gerencia`.
+
+7. **Iniciar el servidor local (con Herd o Artisan):**
 
    Si usas Laravel Herd, el proyecto ya estará disponible automáticamente en `http://cartera-api.test`. O bien, puedes usar:
 

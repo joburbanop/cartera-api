@@ -140,7 +140,7 @@ class AmortizationRealScenariosTest extends TestCase
         $firstResponse->assertCreated();
 
         $this->installment1->refresh();
-        $this->assertSame(AmortizationStatus::PARTIAL, $this->installment1->status);
+        $this->assertSame(AmortizationStatus::OVERDUE, $this->installment1->status);
         $this->assertSame('400000.00', $this->paidAmount($this->installment1));
 
         $secondResponse = $this->postJson('/api/collections/cascade', [

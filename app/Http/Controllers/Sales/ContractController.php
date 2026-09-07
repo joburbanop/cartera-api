@@ -33,40 +33,24 @@ class ContractController extends Controller
 
     protected function ensureCustomerExists(StoreContractRequest $request): void
     {
-        $customerId = $request->input('customer_id');
+        $customerId = $request->validated('customer_id');
 
         if ($customerId && Customer::whereKey($customerId)->exists()) {
             return;
         }
 
-        $customerName = $request->input('customer_name')
-            ?? $request->input('cliente_nombre')
-            ?? 'Cliente de Prueba';
-
-        $customerDocument = $request->input('customer_document')
-            ?? $request->input('document_number')
-            ?? $request->input('document')
-            ?? '99999999';
-
-        $customerPhone = $request->input('customer_phone')
-            ?? $request->input('phone')
-            ?? '3000000000';
-
-        $customerEmail = $request->input('customer_email')
-            ?? $request->input('email')
-            ?? 'cliente.prueba@example.com';
-
+        $document = (string) $request->validated('customer_document');
         $customer = Customer::firstOrCreate(
-            ['document_number' => $customerDocument],
+            ['document_number' => $document],
             [
                 'document_type' => 'CC',
-                'document_number' => $customerDocument,
-                'name' => $customerName,
-                'phone' => $customerPhone,
-                'email' => $customerEmail,
-                'address' => $request->input('customer_address') ?? $request->input('address') ?? null,
-                'city' => $request->input('customer_city') ?? $request->input('city') ?? null,
-                'created_by' => auth()->id() ?? 1,
+                'document_number' => $document,
+                'name' => $request->validated('customer_name'),
+                'phone' => $request->validated('customer_phone'),
+                'email' => $request->validated('customer_email'),
+                'address' => $request->input('customer_address') ?? $request->input('address'),
+                'city' => $request->input('customer_city') ?? $request->input('city'),
+                'created_by' => $this->authenticatedUserId(),
             ]
         );
 

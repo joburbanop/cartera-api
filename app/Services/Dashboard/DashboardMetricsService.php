@@ -218,7 +218,7 @@ class DashboardMetricsService
         $alDia = AmortizationInstallment::query()
             ->where('installment_number', '>', 0)
             ->where(function (Builder $query): void {
-                $query->whereDate('due_date', '>', Carbon::today())
+                $query->whereDate('due_date', '>=', Carbon::today())
                     ->orWhere('status', AmortizationStatus::PAID->value);
             })
             ->count();
@@ -271,7 +271,7 @@ class DashboardMetricsService
     {
         return AmortizationInstallment::query()
             ->where('installment_number', '>', 0)
-            ->where('due_date', '<', Carbon::today()->addDay()->toDateString())
+            ->calendarOverdue()
             ->where('status', '!=', AmortizationStatus::PAID->value);
     }
 

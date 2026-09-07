@@ -4,6 +4,7 @@ namespace App\Services\Financial\Amortization;
 
 use App\Enums\AmortizationStatus;
 use App\Models\Contract;
+use App\Support\FinancialRules;
 use Carbon\Carbon;
 
 class AmortizationCalculationService
@@ -20,7 +21,7 @@ class AmortizationCalculationService
         $monthlyRate = bcdiv($monthlyRatePercent, '100', 10);
 
         if (bccomp($monthlyRate, '0.00', 10) === 0) {
-            return $this->normalizeMoney(bcdiv($principal, (string) $months, 2));
+            return FinancialRules::roundHalfUp2(bcdiv($principal, (string) $months, 10));
         }
 
         $factor = bcadd('1.00', $monthlyRate, 10);
@@ -29,7 +30,7 @@ class AmortizationCalculationService
         $numerator = bcmul($numerator, $power, 10);
         $denominator = bcsub($power, '1.00', 10);
 
-        return $this->normalizeMoney(bcdiv($numerator, $denominator, 10));
+        return FinancialRules::roundHalfUp2(bcdiv($numerator, $denominator, 10));
     }
 
     public function calculateInterest(

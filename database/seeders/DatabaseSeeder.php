@@ -2,12 +2,11 @@
 
 namespace Database\Seeders;
 
+use App\Enums\RoleName;
 use App\Models\BankAccount;
 use App\Models\User;
-use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -17,42 +16,51 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(RolesAndPermissionsSeeder::class);
 
+        if (app()->environment('production')) {
+            return;
+        }
+
+        $password = (string) env('SEED_USER_PASSWORD', 'password');
+        if ($password === '') {
+            throw new \RuntimeException('SEED_USER_PASSWORD no puede estar vacío.');
+        }
+
         $user = User::query()->firstOrCreate(
             ['email' => 'admin@admin.com'],
             [
                 'name' => 'Administrador',
                 'email' => 'admin@admin.com',
-                'password' => Hash::make('password'),
+                'password' => $password,
             ]
         );
-        $user->syncRoles(['administrador']);
+        $user->syncRoles([RoleName::ADMINISTRADOR->value]);
 
         $socio = User::query()->firstOrCreate(
             ['email' => 'socio@cartera.test'],
             [
                 'name' => 'Socio Gerencia',
                 'email' => 'socio@cartera.test',
-                'password' => Hash::make('password'),
+                'password' => $password,
             ]
         );
-        $socio->syncRoles(['socio_gerencia']);
+        $socio->syncRoles([RoleName::SOCIO_GERENCIA->value]);
 
         $adminSistema = User::query()->firstOrCreate(
             ['email' => 'sistema@cartera.test'],
             [
                 'name' => 'Admin Sistema',
                 'email' => 'sistema@cartera.test',
-                'password' => Hash::make('password'),
+                'password' => $password,
             ]
         );
-        $adminSistema->syncRoles(['admin_sistema']);
+        $adminSistema->syncRoles([RoleName::ADMIN_SISTEMA->value]);
 
         User::query()->firstOrCreate(
             ['email' => 'test@example.com'],
             [
                 'name' => 'Test User',
                 'email' => 'test@example.com',
-                'password' => Hash::make('password'),
+                'password' => $password,
             ]
         );
 

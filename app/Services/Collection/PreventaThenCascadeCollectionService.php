@@ -8,6 +8,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
+use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -116,7 +117,7 @@ class PreventaThenCascadeCollectionService
             return false;
         }
 
-        return bccomp($this->pendingInitial($contract), '500.00', 2) >= 0;
+        return ! FinancialRules::residualIsWithinCompletionTolerance($this->pendingInitial($contract));
     }
 
     private function pendingInitial(Contract $contract): string

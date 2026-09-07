@@ -1,0 +1,6 @@
+{
+  "quota_completion_residual": "500.00",
+  "absorbed_surplus": "2.00",
+  "imputation_dust": "1.00",
+  "pmt_rounding": "half_up_2"
+}
