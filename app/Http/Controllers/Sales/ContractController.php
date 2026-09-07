@@ -61,7 +61,16 @@ class ContractController extends Controller
     {
         $lotId = $request->filled('lot_id') ? (int) $request->query('lot_id') : null;
         $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
-        $contracts = $this->contractService->getAllContracts($perPage, $lotId);
+        $contracts = $this->contractService->getAllContracts($perPage, $lotId, [
+            'contract_number' => $request->query('contract_number'),
+            'customer' => $request->query('customer'),
+            'project_id' => $request->query('project_id'),
+            'lot_number' => $request->query('lot_number'),
+            'status' => $request->query('status'),
+            'cartera' => $request->query('cartera'),
+            'start_date_from' => $request->query('start_date_from'),
+            'start_date_to' => $request->query('start_date_to'),
+        ]);
 
         return $this->successResponse($contracts, 'Lista de contratos obtenida exitosamente.');
     }
