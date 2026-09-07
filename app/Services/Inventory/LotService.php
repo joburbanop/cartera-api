@@ -89,18 +89,18 @@ class LotService
         } elseif ($planType === 'special') {
             $query->whereHas(
                 'contracts',
-                fn ($contracts) => $contracts->where('is_special_lot', true)
+                fn ($contracts) => $contracts->where('contracts.is_special_lot', true)
             );
         } elseif ($planType === 'custom') {
             $query->whereHas(
                 'contracts',
-                fn ($contracts) => $contracts->where('is_custom_plan', true)
+                fn ($contracts) => $contracts->where('contracts.is_custom_plan', true)
             );
         } elseif ($planType === 'standard') {
             $query->whereHas('contracts', function ($contracts) {
                 $contracts
-                    ->where('is_special_lot', false)
-                    ->where('is_custom_plan', false);
+                    ->where('contracts.is_special_lot', false)
+                    ->where('contracts.is_custom_plan', false);
             });
         }
 
@@ -130,8 +130,8 @@ class LotService
                     $builder
                         ->whereHas('customer', function ($holder) use ($like) {
                             $holder
-                                ->where('name', 'like', $like)
-                                ->orWhere('document_number', 'like', $like);
+                                ->where('customers.name', 'like', $like)
+                                ->orWhere('customers.document_number', 'like', $like);
                         })
                         ->orWhereHas('customers', function ($holders) use ($like) {
                             $holders

@@ -127,8 +127,8 @@ class ContractService
                 $builder
                     ->whereHas('customer', function (Builder $holder) use ($like) {
                         $holder
-                            ->where('name', 'like', $like)
-                            ->orWhere('document_number', 'like', $like);
+                            ->where('customers.name', 'like', $like)
+                            ->orWhere('customers.document_number', 'like', $like);
                     })
                     ->orWhereHas('customers', function (Builder $holders) use ($like) {
                         $holders
@@ -141,7 +141,7 @@ class ContractService
         $projectId = isset($filters['project_id']) ? (int) $filters['project_id'] : 0;
 
         if ($projectId > 0) {
-            $query->whereHas('lot', fn (Builder $lot) => $lot->where('project_id', $projectId));
+            $query->whereHas('lot', fn (Builder $lot) => $lot->where('lots.project_id', $projectId));
         }
 
         $lotNumber = trim((string) ($filters['lot_number'] ?? ''));
@@ -149,8 +149,8 @@ class ContractService
         if ($lotNumber !== '') {
             $query->whereHas('lot', function (Builder $lot) use ($lotNumber) {
                 $lot->where(function (Builder $builder) use ($lotNumber) {
-                    $builder->where('number', $lotNumber)
-                        ->orWhere('number', 'like', '%'.$lotNumber.'%');
+                    $builder->where('lots.number', $lotNumber)
+                        ->orWhere('lots.number', 'like', '%'.$lotNumber.'%');
                 });
             });
         }

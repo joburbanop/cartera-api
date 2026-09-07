@@ -9,6 +9,7 @@ use App\Models\Lot;
 use App\Models\Project;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -35,6 +36,17 @@ function lotIdsFromIndex(array $payload): array
     return collect($payload['data']['data'] ?? $payload['data'] ?? [])
         ->pluck('id')
         ->all();
+}
+
+function lotLoggedSql(callable $callback): array
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $callback();
+    $sqls = array_column(DB::getQueryLog(), 'query');
+    DB::disableQueryLog();
+
+    return $sqls;
 }
 
 function createOverdueInstallment(Contract $contract): AmortizationInstallment
@@ -120,10 +132,19 @@ it('filtra por tipo de plan incluyendo sin plan', function () {
         'is_custom_plan' => true,
     ]);
 
-    expect(lotIdsFromIndex($this->getJson('/api/lots?plan_type=none&per_page=50')->json()))->toBe([$without->id])
-        ->and(lotIdsFromIndex($this->getJson('/api/lots?plan_type=standard&per_page=50')->json()))->toBe([$standardLot->id])
-        ->and(lotIdsFromIndex($this->getJson('/api/lots?plan_type=special&per_page=50')->json()))->toBe([$specialLot->id])
-        ->and(lotIdsFromIndex($this->getJson('/api/lots?plan_type=custom&per_page=50')->json()))->toBe([$customLot->id]);
+    $sqls = lotLoggedSql(function () use (&$none, &$standard, &$special, &$custom) {
+        $none = $this->getJson('/api/lots?plan_type=none&per_page=50')->assertOk()->json();
+        $standard = $this->getJson('/api/lots?plan_type=standard&per_page=50')->assertOk()->json();
+        $special = $this->getJson('/api/lots?plan_type=special&per_page=50')->assertOk()->json();
+        $custom = $this->getJson('/api/lots?plan_type=custom&per_page=50')->assertOk()->json();
+    });
+
+    expect(lotIdsFromIndex($none))->toBe([$without->id])
+        ->and(lotIdsFromIndex($standard))->toBe([$standardLot->id])
+        ->and(lotIdsFromIndex($special))->toBe([$specialLot->id])
+        ->and(lotIdsFromIndex($custom))->toBe([$customLot->id]);
+
+    expect(implode("\n", $sqls))->toContain('contracts');
 });
 
 it('filtra cartera al día y con mora', function () {
@@ -158,8 +179,15 @@ it('filtra cartera al día y con mora', function () {
         'status' => 'pending',
     ]);
 
-    expect(lotIdsFromIndex($this->getJson('/api/lots?cartera=mora&per_page=50')->json()))->toBe([$moraLot->id])
-        ->and(lotIdsFromIndex($this->getJson('/api/lots?cartera=al_dia&per_page=50')->json()))->toBe([$okLot->id]);
+    $sqls = lotLoggedSql(function () use (&$moraPayload, &$okPayload) {
+        $moraPayload = $this->getJson('/api/lots?cartera=mora&per_page=50')->assertOk()->json();
+        $okPayload = $this->getJson('/api/lots?cartera=al_dia&per_page=50')->assertOk()->json();
+    });
+
+    expect(lotIdsFromIndex($moraPayload))->toBe([$moraLot->id])
+        ->and(lotIdsFromIndex($okPayload))->toBe([$okLot->id]);
+
+    expect(implode("\n", $sqls))->toContain('amortization_installments');
 });
 
 it('filtra por titular nombre o documento', function () {
@@ -180,12 +208,18 @@ it('filtra por titular nombre o documento', function () {
         'lot_id' => Lot::factory()->create(['project_id' => $this->projectA->id])->id,
     ]);
 
-    $byName = $this->getJson('/api/lots?customer=Zeta%20Filtro&per_page=50')->assertOk()->json();
-    $byDoc = $this->getJson('/api/lots?customer=44556677&per_page=50')->assertOk()->json();
+    $sqls = lotLoggedSql(function () use (&$byName, &$byDoc) {
+        $byName = $this->getJson('/api/lots?customer=Zeta%20Filtro&per_page=50')->assertOk()->json();
+        $byDoc = $this->getJson('/api/lots?customer=44556677&per_page=50')->assertOk()->json();
+    });
 
     expect($byName['data']['total'])->toBe(1)
         ->and(lotIdsFromIndex($byName))->toBe([$lot->id])
         ->and(lotIdsFromIndex($byDoc))->toBe([$lot->id]);
+
+    $blob = implode("\n", $sqls);
+    expect($blob)->toContain('contracts')
+        ->and($blob)->toContain('customers');
 });
 
 it('combina filtros con AND y expone total para el contador', function () {

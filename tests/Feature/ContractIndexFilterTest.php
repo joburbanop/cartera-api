@@ -8,6 +8,7 @@ use App\Models\Lot;
 use App\Models\Project;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -34,6 +35,26 @@ function contractIdsFromIndex(array $payload): array
     return collect($payload['data']['data'] ?? $payload['data'] ?? [])
         ->pluck('id')
         ->all();
+}
+
+function loggedSql(callable $callback): array
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $callback();
+    $sqls = array_column(DB::getQueryLog(), 'query');
+    DB::disableQueryLog();
+
+    return $sqls;
+}
+
+function assertSqlUsesLotsNumberNotContractLotNumber(array $sqls): void
+{
+    $blob = implode("\n", $sqls);
+
+    expect($blob)->toContain('lots')
+        ->and($blob)->toContain('number')
+        ->and($blob)->not->toContain('lot_number');
 }
 
 function createContractOverdueInstallment(Contract $contract): AmortizationInstallment
@@ -77,26 +98,54 @@ it('filtra por titular nombre o documento', function () {
     $target = Contract::factory()->create(['customer_id' => $holder->id]);
     Contract::factory()->create(['customer_id' => $other->id]);
 
-    $byName = $this->getJson('/api/contracts?customer=Zeta%20Contrato&per_page=50')->assertOk()->json();
-    $byDoc = $this->getJson('/api/contracts?customer=44556677&per_page=50')->assertOk()->json();
+    $sqls = loggedSql(function () use (&$byName, &$byDoc) {
+        $byName = $this->getJson('/api/contracts?customer=Zeta%20Contrato&per_page=50')->assertOk()->json();
+        $byDoc = $this->getJson('/api/contracts?customer=44556677&per_page=50')->assertOk()->json();
+    });
 
     expect($byName['data']['total'])->toBe(1)
         ->and(contractIdsFromIndex($byName))->toBe([$target->id])
         ->and(contractIdsFromIndex($byDoc))->toBe([$target->id]);
+
+    expect(implode("\n", $sqls))->toContain('customers');
 });
 
-it('filtra por proyecto y por número de lote', function () {
+it('filtra por proyecto a través de lots.project_id', function () {
     $lotA = Lot::factory()->create(['project_id' => $this->projectA->id, 'number' => 'L-88']);
     $lotB = Lot::factory()->create(['project_id' => $this->projectB->id, 'number' => 'L-99']);
     $inA = Contract::factory()->create(['lot_id' => $lotA->id]);
     Contract::factory()->create(['lot_id' => $lotB->id]);
 
-    $byProject = $this->getJson('/api/contracts?project_id='.$this->projectA->id.'&per_page=50')->assertOk()->json();
-    $byLot = $this->getJson('/api/contracts?lot_number=88&per_page=50')->assertOk()->json();
+    $sqls = loggedSql(function () use (&$byProject) {
+        $byProject = $this->getJson('/api/contracts?project_id='.$this->projectA->id.'&per_page=50')
+            ->assertOk()
+            ->json();
+    });
 
     expect($byProject['data']['total'])->toBe(1)
-        ->and(contractIdsFromIndex($byProject))->toBe([$inA->id])
+        ->and(contractIdsFromIndex($byProject))->toBe([$inA->id]);
+
+    $blob = implode("\n", $sqls);
+    expect($blob)->toContain('lots')
+        ->and($blob)->toContain('project_id');
+});
+
+it('filtra por número de lote consultando lots.number, no contracts.lot_number', function () {
+    $lotA = Lot::factory()->create(['project_id' => $this->projectA->id, 'number' => 'L-88']);
+    $lotB = Lot::factory()->create(['project_id' => $this->projectB->id, 'number' => 'L-99']);
+    $inA = Contract::factory()->create(['lot_id' => $lotA->id]);
+    Contract::factory()->create(['lot_id' => $lotB->id]);
+
+    $sqls = loggedSql(function () use (&$byLot) {
+        $byLot = $this->getJson('/api/contracts?lot_number=88&per_page=50')
+            ->assertOk()
+            ->json();
+    });
+
+    expect($byLot['data']['total'])->toBe(1)
         ->and(contractIdsFromIndex($byLot))->toBe([$inA->id]);
+
+    assertSqlUsesLotsNumberNotContractLotNumber($sqls);
 });
 
 it('filtra por estado del contrato', function () {
@@ -129,8 +178,16 @@ it('filtra cartera al día y con mora', function () {
         'status' => 'pending',
     ]);
 
-    expect(contractIdsFromIndex($this->getJson('/api/contracts?cartera=mora&per_page=50')->json()))->toBe([$mora->id])
-        ->and(contractIdsFromIndex($this->getJson('/api/contracts?cartera=al_dia&per_page=50')->json()))->toBe([$ok->id]);
+    $sqls = loggedSql(function () use (&$moraPayload, &$okPayload) {
+        $moraPayload = $this->getJson('/api/contracts?cartera=mora&per_page=50')->assertOk()->json();
+        $okPayload = $this->getJson('/api/contracts?cartera=al_dia&per_page=50')->assertOk()->json();
+    });
+
+    expect(contractIdsFromIndex($moraPayload))->toBe([$mora->id])
+        ->and(contractIdsFromIndex($okPayload))->toBe([$ok->id]);
+
+    $blob = implode("\n", $sqls);
+    expect($blob)->toContain('amortization_installments');
 });
 
 it('filtra por rango de fecha de firma', function () {
