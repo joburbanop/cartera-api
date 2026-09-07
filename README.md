@@ -75,7 +75,14 @@ Sigue estos pasos para levantar el backend en tu entorno local:
    php artisan user:create "Nombre Apellido" admin@tuempresa.com admin_sistema
    ```
 
-   El comando pide la contraseña por prompt (mínimo 8 caracteres) y no la deja en el código. Roles válidos: `admin_sistema`, `administrador`, `socio_gerencia`.
+   El comando pide la contraseña por prompt (mínimo 8 caracteres) y no la deja en el código. Roles válidos: `admin_sistema`, `administrador`, `socio_gerencia`. El usuario queda marcado para cambiar la contraseña en el primer ingreso.
+
+   Si el flujo de cambio de contraseña falla y nadie puede entrar:
+
+   ```bash
+   php artisan user:unlock-password --email=admin@tuempresa.com
+   php artisan user:unlock-password --all
+   ```
 
 7. **Iniciar el servidor local (con Herd o Artisan):**
 

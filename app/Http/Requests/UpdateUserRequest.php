@@ -33,6 +33,7 @@ class UpdateUserRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($userId),
             ],
             'role' => ['sometimes', 'required', 'string', Rule::in(RoleName::values())],
+            'password' => 'sometimes|nullable|string|min:8',
         ];
     }
 }

@@ -18,4 +18,16 @@ class LoginRequest extends FormRequest
             'password' => 'required|string',
         ];
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'El correo es obligatorio.',
+            'email.email' => 'Ingresa un correo válido.',
+            'password.required' => 'La contraseña es obligatoria.',
+        ];
+    }
 }

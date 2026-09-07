@@ -46,7 +46,8 @@ it('crea un usuario por artisan con contraseña por prompt', function () {
     expect($user)->not->toBeNull()
         ->and($user->name)->toBe('Ada Admin')
         ->and($user->hasRole(RoleName::ADMIN_SISTEMA->value))->toBeTrue()
-        ->and(Hash::check('secreto99', $user->password))->toBeTrue();
+        ->and(Hash::check('secreto99', $user->password))->toBeTrue()
+        ->and($user->must_change_password)->toBeTrue();
 });
 
 it('rechaza user:create con rol inválido o correo duplicado', function () {

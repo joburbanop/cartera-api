@@ -122,6 +122,24 @@ El comando pide la contraseña por prompt (mínimo 8 caracteres). Roles válidos
 - `administrador` entra a `/dashboard` y opera el negocio.
 - `socio_gerencia` es de solo lectura; créalo cuando lo necesites, igual con `user:create`.
 
+Los usuarios nuevos (`user:create` o el panel) y los que ya existían al correr la migración `must_change_password` quedan marcados: en el primer ingreso (o tras un reset de un admin) solo pueden cambiar la contraseña o cerrar sesión. `password_changed_at` en null es primer ingreso; con fecha, reset de un admin. Quienes ya habían desbloqueado o cambiado la clave reciben fecha al migrar, para no mezclar los dos textos.
+
+### Recuperar el acceso si el cambio de contraseña falla
+
+Si todos los usuarios quedan bloqueados (no pueden completar `PUT /api/me/password`), en el servidor:
+
+```bash
+cd /var/www/cartera-api   # o la ruta real del proyecto
+
+# Un usuario
+php artisan user:unlock-password --email=santiago@casasylotes.com.co
+
+# Todos
+php artisan user:unlock-password --all
+```
+
+Eso solo pone `must_change_password = false`. Entran con la contraseña que ya tenían. No borra cuentas ni tokens.
+
 ---
 
 ## 5. Carga histórica de San Miguel

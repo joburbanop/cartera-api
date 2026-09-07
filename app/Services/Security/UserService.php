@@ -9,6 +9,7 @@ use App\DTOs\UpdateUserDTO;
 use App\Enums\RoleName;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class UserService
@@ -34,6 +35,7 @@ class UserService
             'name' => $dto->name,
             'email' => $dto->email,
             'password' => $dto->password,
+            'must_change_password' => true,
         ]);
 
         $user->syncRoles([RoleName::from($dto->role)->value]);
@@ -44,7 +46,7 @@ class UserService
     /**
      * @return array{id: int, name: string, email: string, roles: list<string>}
      */
-    public function updateUser(User $user, UpdateUserDTO $dto): array
+    public function updateUser(User $user, UpdateUserDTO $dto, User $actor): array
     {
         if ($dto->role !== null) {
             $this->guardLastAdminSistema($user, $dto->role);
@@ -56,7 +58,24 @@ class UserService
         ], static fn (mixed $value): bool => $value !== null);
 
         if ($payload !== []) {
-            $user->fill($payload)->save();
+            $user->fill($payload);
+        }
+
+        if ($dto->password !== null) {
+            $user->password = $dto->password;
+            $changingOwnPassword = $user->is($actor);
+            $user->must_change_password = ! $changingOwnPassword;
+            if ($changingOwnPassword) {
+                $user->password_changed_at = now();
+            }
+        }
+
+        if ($payload !== [] || $dto->password !== null) {
+            $user->save();
+        }
+
+        if ($dto->password !== null && ! $user->is($actor)) {
+            $user->tokens()->delete();
         }
 
         if ($dto->role !== null) {
@@ -64,6 +83,40 @@ class UserService
         }
 
         return $this->presentUser($user->fresh(['roles']) ?? $user);
+    }
+
+    public function changeOwnPassword(User $user, string $currentPassword, string $newPassword): void
+    {
+        if (! Hash::check($currentPassword, $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['La contraseña actual no es correcta.'],
+            ]);
+        }
+
+        if (Hash::check($newPassword, $user->password)) {
+            throw ValidationException::withMessages([
+                'password' => ['La nueva contraseña debe ser diferente a la actual.'],
+            ]);
+        }
+
+        $user->password = $newPassword;
+        $user->must_change_password = false;
+        $user->password_changed_at = now();
+        $user->save();
+
+        $currentToken = $user->currentAccessToken();
+        $currentTokenId = $currentToken && isset($currentToken->id) ? $currentToken->id : null;
+
+        $query = $user->tokens();
+        if ($currentTokenId) {
+            $query->whereKeyNot($currentTokenId);
+        }
+        $query->delete();
+    }
+
+    public function clearMustChangePassword(User $user): void
+    {
+        $user->forceFill(['must_change_password' => false])->save();
     }
 
     /**
@@ -92,7 +145,7 @@ class UserService
     }
 
     /**
-     * @return array{id: int, name: string, email: string, roles: list<string>}
+     * @return array{id: int, name: string, email: string, roles: list<string>, must_change_password: bool, password_changed_at: string|null}
      */
     public function presentUser(User $user): array
     {
@@ -101,6 +154,8 @@ class UserService
             'name' => $user->name,
             'email' => $user->email,
             'roles' => $user->getRoleNames()->values()->all(),
+            'must_change_password' => (bool) $user->must_change_password,
+            'password_changed_at' => $user->password_changed_at?->toIso8601String(),
         ];
     }
 

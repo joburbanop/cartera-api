@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\DTOs\LoginDTO;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ChangeOwnPasswordRequest;
 use App\Http\Requests\LoginRequest;
 use App\Services\Auth\AuthService;
 use App\Services\Security\UserService;
@@ -53,5 +54,22 @@ class AuthController extends Controller
         }
 
         return $this->successResponse(null, 'Sesión cerrada.');
+    }
+
+    public function changePassword(ChangeOwnPasswordRequest $request): JsonResponse
+    {
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+
+        $this->userService->changeOwnPassword(
+            $user,
+            (string) $request->validated('current_password'),
+            (string) $request->validated('password'),
+        );
+
+        return $this->successResponse(
+            $this->userService->presentUser($user->fresh(['roles']) ?? $user),
+            'Contraseña actualizada exitosamente.'
+        );
     }
 }

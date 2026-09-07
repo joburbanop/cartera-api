@@ -25,7 +25,7 @@ class AuthService
 
         if (! $user || ! Hash::check($dto->password, $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Las credenciales proporcionadas son incorrectas.'],
+                'email' => ['El correo o la contraseña no son correctos.'],
             ]);
         }
 

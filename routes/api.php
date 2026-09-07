@@ -21,18 +21,22 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
-})->middleware('auth:sanctum');
+})->middleware(['auth:sanctum', 'password.changed']);
 
 Route::post('/login', [AuthController::class, 'login'])
     ->middleware('throttle:login');
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/me', [AuthController::class, 'me']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::put('/me/password', [AuthController::class, 'changePassword'])
+        ->middleware('throttle:writes');
+});
+
+Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     
     Route::get('/lots/archived', [LotController::class, 'archived'])
         ->middleware('permission:lots.manage');
-
-    Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/search', [SearchController::class, 'index']);
     Route::get('/activity', [ActivityController::class, 'index'])
         ->middleware('permission:bitacora.view');
