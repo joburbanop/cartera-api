@@ -57,11 +57,11 @@ class Lot extends Model
     {
         return $this->belongsTo(Project::class);
     }
-
     public function contracts(): HasMany
     {
         return $this->hasMany(Contract::class);
     }
+
 
     // Auditoría
     public function creator(): BelongsTo

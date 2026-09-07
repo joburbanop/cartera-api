@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Project extends Model
 {
@@ -47,6 +48,10 @@ class Project extends Model
     public function lots()
     {
         return $this->hasMany(Lot::class);
+    }
+    public function statusHistory(): HasMany
+    {
+        return $this->hasMany(ProjectStatusHistory::class);
     }
 
     public function getActivitylogOptions(): LogOptions

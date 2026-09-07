@@ -18,6 +18,7 @@ use App\Http\Controllers\TransactionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+
 Route::get('/user', function (Request $request) {
     return $request->user();
 })->middleware('auth:sanctum');
@@ -26,6 +27,10 @@ Route::post('/login', [AuthController::class, 'login'])
     ->middleware('throttle:login');
 
 Route::middleware('auth:sanctum')->group(function () {
+    
+    Route::get('/lots/archived', [LotController::class, 'archived'])
+        ->middleware('permission:lots.manage');
+
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/search', [SearchController::class, 'index']);
@@ -57,6 +62,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:projects.view|projects.manage');
     Route::post('/projects', [ProjectController::class, 'store'])
         ->middleware('permission:projects.manage');
+    Route::put('/projects/{project}', [ProjectController::class, 'update'])
+        ->middleware('permission:projects.manage');
+    Route::patch('/projects/{project}/archive', [ProjectController::class, 'archive'])
+        ->middleware('permission:projects.manage');
+    Route::patch('/projects/{project}/activate', [ProjectController::class, 'activate'])
+        ->middleware('permission:projects.manage');
+
+
 
     Route::get('/lots', [LotController::class, 'index'])
         ->middleware('permission:lots.view|lots.manage');
@@ -111,9 +124,17 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/customers', [CustomerController::class, 'index'])
         ->middleware('permission:customers.manage');
-    Route::get('/customers/{customer}', [CustomerController::class, 'show'])
-        ->middleware('permission:customers.manage');
     Route::post('/customers', [CustomerController::class, 'store'])
+        ->middleware('permission:customers.manage');
+    Route::put('/customers/{customer}', [CustomerController::class, 'update'])
+        ->middleware('permission:customers.manage');
+    Route::delete('/customers/{customer}', [CustomerController::class, 'archive'])
+        ->middleware('permission:customers.manage');
+    Route::post('/customers/{customer}/activate', [CustomerController::class, 'activate'])
+        ->middleware('permission:customers.manage');
+    Route::get('/customers/archived', [CustomerController::class, 'archived'])
+        ->middleware('permission:customers.manage');
+    Route::get('/customers/{customer}', [CustomerController::class, 'show'])
         ->middleware('permission:customers.manage');
 
     Route::get('/bank-accounts', [BankAccountController::class, 'index'])
@@ -133,4 +154,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware(['permission:users.manage', 'throttle:writes']);
     Route::delete('/users/{user}', [UserController::class, 'destroy'])
         ->middleware(['permission:users.manage', 'throttle:writes']);
+
+    
+    Route::put('/lots/{lot}', [LotController::class, 'update'])
+        ->middleware('permission:lots.manage');
+    Route::patch('/lots/{lot}/archive', [LotController::class, 'archive'])
+        ->middleware('permission:lots.manage');
+    Route::patch('/lots/{lot}/activate', [LotController::class, 'activate'])
+        ->middleware('permission:lots.manage');
 });
