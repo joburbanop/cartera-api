@@ -175,13 +175,13 @@ npx ng build
 
 `ng build` usa la configuración `production` por defecto. Eso reemplaza `environment.ts` por `environment.prod.ts` (`apiUrl`: `https://api.casasylotes.com.co/api`).
 
-El artefacto queda en `dist/sgci-front/browser/`. Cópialo al docroot del front en el VPS (por ejemplo `/var/www/cartera-front/browser`).
+El artefacto queda siempre en `dist/browser/` (no depende del nombre del proyecto). Cópialo al docroot del front en el VPS (por ejemplo `/var/www/cartera-front/browser`).
 
 Comprueba el bundle **antes** de publicar:
 
 ```bash
-grep -R "api.casasylotes.com.co" dist/sgci-front/browser
-grep -R "127.0.0.1:8000" dist/sgci-front/browser && echo "FALLO: sigue la URL local" || echo "OK: no hay localhost"
+grep -R "api.casasylotes.com.co" dist/browser
+grep -R "127.0.0.1:8000" dist/browser && echo "FALLO: sigue la URL local" || echo "OK: no hay localhost"
 ```
 
 `ng serve` en desarrollo **no** usa `environment.prod.ts`; local sigue en `http://127.0.0.1:8000/api`.
