@@ -48,12 +48,18 @@ class CustomerResource extends JsonResource
         return [
             'id' => $this->id,
 
-            'document_type' => $this->document_type?->value ?? 'CC',
-            'document_number' => $this->document_number,
+            'nombre' => $this->name,
             'name' => $this->name,
+            'documento' => $this->document_number,
+            'document_number' => $this->document_number,
+            'telefono' => $this->phone ?? 'Sin teléfono',
             'phone' => $this->phone,
             'email' => $this->email,
+            'tipo_documento' => $this->document_type?->value ?? 'CC',
+            'document_type' => $this->document_type?->value ?? 'CC',
+            'direccion' => $this->address,
             'address' => $this->address,
+            'ciudad' => $this->city,
             'city' => $this->city,
 
             'lote' => $loteName,
