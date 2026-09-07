@@ -106,6 +106,7 @@ class DownPaymentServiceTest extends TestCase
         $this->assertSame(LotStatus::DISPONIBLE, $this->contract->lot->fresh()->status);
         $this->assertSame(AmortizationStatus::PARTIAL, $this->initialInstallment()->status);
         $this->assertSame('12000000.00', (string) $this->initialInstallment()->quota_debt);
+        $this->assertSame('8000000.00', (string) $this->initialInstallment()->principal_paid);
         $this->assertSame(bcsub(self::SALE_PRICE, self::DOWN_PAYMENT, 2), (string) $this->initialInstallment()->remaining_balance);
 
         $this->pay('12000000.00');
@@ -137,6 +138,7 @@ class DownPaymentServiceTest extends TestCase
         $this->assertSame(LotStatus::DISPONIBLE, $this->contract->lot->fresh()->status);
         $this->assertSame(AmortizationStatus::PARTIAL, $this->initialInstallment()->status);
         $this->assertSame('600.00', (string) $this->initialInstallment()->quota_debt);
+        $this->assertSame('19999400.00', (string) $this->initialInstallment()->principal_paid);
         $this->assertNotSame(AmortizationStatus::PAID, $this->initialInstallment()->status);
     }
 

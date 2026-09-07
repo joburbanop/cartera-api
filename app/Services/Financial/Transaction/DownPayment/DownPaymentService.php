@@ -110,6 +110,14 @@ class DownPaymentService
             (string) ($initialInstallment->principal_value ?? $contract->down_payment_pactada)
         );
         $interestValue = $this->normalizeMoney((string) ($initialInstallment->interest_value ?? '0.00'));
+        $accumulatedPrincipal = $this->normalizeMoney(bcadd(
+            (string) ($initialInstallment->principal_paid ?? '0.00'),
+            (string) $dto->amount,
+            2
+        ));
+        if (bccomp($accumulatedPrincipal, $principalValue, 2) === 1) {
+            $accumulatedPrincipal = $principalValue;
+        }
 
         $initialInstallment->update([
             'quota_debt' => $isComplete ? '0.00' : $updatedDebt,
@@ -119,7 +127,7 @@ class DownPaymentService
             ),
             'payment_date' => $dto->transactionDate->toDateString(),
             'status' => $isComplete ? AmortizationStatus::PAID : AmortizationStatus::PARTIAL,
-            'principal_paid' => $isComplete ? $principalValue : $initialInstallment->principal_paid,
+            'principal_paid' => $isComplete ? $principalValue : $accumulatedPrincipal,
             'interest_paid' => $isComplete ? $interestValue : $initialInstallment->interest_paid,
         ]);
     }

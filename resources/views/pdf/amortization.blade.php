@@ -85,7 +85,7 @@
                 <th>Vence</th>
                 <th>Cuota</th>
                 <th>Intereses</th>
-                <th>Capital Pagado</th>
+                <th>Amortización</th>
                 <th>Saldo</th>
                 <th>Estado</th>
             </tr>
@@ -96,8 +96,8 @@
                     <td>{{ $row->installment_number === 0 ? 'Inicial' : $row->installment_number }}</td>
                     <td>{{ optional($row->due_date)->format('d/m/Y') ?? '--' }}</td>
                     <td class="right">$ {{ number_format((float) $row->installment_value, 2, ',', '.') }}</td>
-                    <td class="right">$ {{ number_format((float) ($row->interest_paid ?? 0), 2, ',', '.') }}</td>
-                    <td class="right">$ {{ number_format((float) ($row->principal_paid ?? 0), 2, ',', '.') }}</td>
+                    <td class="right">$ {{ number_format(\App\Support\AmortizationScheduleDisplay::interestAmount($row), 2, ',', '.') }}</td>
+                    <td class="right">$ {{ number_format(\App\Support\AmortizationScheduleDisplay::amortizationAmount($row), 2, ',', '.') }}</td>
                     <td class="right">$ {{ number_format((float) $row->remaining_balance, 2, ',', '.') }}</td>
                     <td>{{ $row->status->value ?? $row->status }}</td>
                 </tr>
