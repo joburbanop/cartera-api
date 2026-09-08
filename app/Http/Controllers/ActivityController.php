@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PermissionName;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
+use App\Services\Financial\Refinancing\RefinanceContractService;
 use App\Traits\ApiResponse;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,6 +38,12 @@ class ActivityController extends Controller
             'subject_id' => ['required', 'integer', 'min:1'],
         ])->validate();
 
+        $seesFullLog = (bool) $request->user()?->can(PermissionName::BITACORA_VIEW->value);
+
+        if (! $seesFullLog && $validated['subject_type'] !== 'contract') {
+            abort(403, 'Solo puede consultar la bitácora de refinanciaciones de un contrato.');
+        }
+
         $modelClass = self::SUBJECT_MAP[$validated['subject_type']];
         $subject = $modelClass::query()->findOrFail((int) $validated['subject_id']);
 
@@ -44,6 +53,12 @@ class ActivityController extends Controller
             ->with('causer')
             ->where('subject_type', $subject::class)
             ->where('subject_id', $subject->getKey())
+            ->when(! $seesFullLog, fn (Builder $query) => $query->where(
+                fn (Builder $refinancings) => $refinancings
+                    ->where('log_name', RefinanceContractService::LOG_NAME)
+                    // Refinanciaciones anteriores al canal propio de bitácora.
+                    ->orWhere('description', 'like', 'Refinanció el contrato%'),
+            ))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate($perPage);

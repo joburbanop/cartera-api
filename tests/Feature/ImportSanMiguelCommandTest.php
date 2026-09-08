@@ -208,6 +208,47 @@ it('con --fresh borra contratos San Miguel y vuelve a importar el fixture', func
     unlink($path);
 });
 
+it('en lotes 6 y 45 usa el VR LOTE del Excel, no la cuantía del PDF', function () {
+    $path = sys_get_temp_dir().'/san-miguel-custom-price-'.uniqid().'.xlsx';
+    $spreadsheet = new Spreadsheet;
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('LOTE 6');
+    $sheet->setCellValue('C1', 'Modalidad');
+    $sheet->setCellValue('A5', 105196000);
+    $sheet->setCellValue('D2', 10519600);
+    $sheet->setCellValue('D4', 0.01);
+    $sheet->setCellValue('D5', 60);
+    $sheet->setCellValue('C7', 'CLIENTE:');
+    $sheet->setCellValue('D7', 'ANA EXISTENTE');
+    $sheet->setCellValue('C8', 'CEDULA:');
+    $sheet->setCellValue('D8', '900900900');
+    $sheet->setCellValue('C9', 'Nper');
+    $sheet->fromArray([
+        'FECHA', 'CONCEPTO', 'RECIBO #', 'EFECTIVO', 'BANCOLOMBIA', 'OCCIDENTE 6391', 'VALOR SIN CUENTA', 'TOTAL PAGO', 'APLICA A CUOTAS', 'SALDO', 'OBSERVACIÓN',
+    ], null, 'L9');
+    $sheet->setCellValue('L11', '06/08/2025');
+    $sheet->setCellValue('M11', 'CUOTA INICIAL');
+    $sheet->setCellValue('N11', 'R-6');
+    $sheet->setCellValue('O11', 10519600);
+    $sheet->setCellValue('S11', 10519600);
+    $sheet->setCellValue('U11', 94676400);
+    (new Xlsx($spreadsheet))->save($path);
+
+    $this->artisan('import:san-miguel', ['archivo' => $path, '--solo-lote' => '6'])
+        ->assertSuccessful();
+
+    $contract = Contract::query()->where('contract_number', 'SM-LOTE-6')->firstOrFail();
+
+    expect((float) $contract->sale_price)->toBe(105196000.0)
+        ->and((float) $contract->sale_price)->not->toBe(130192851.0)
+        ->and((float) $contract->down_payment_pactada)->toBe(10519600.0)
+        ->and((float) $contract->lot->list_price)->toBe(105196000.0)
+        ->and($contract->is_custom_plan)->toBeTrue()
+        ->and($contract->paymentPromises()->count())->toBe(48);
+
+    unlink($path);
+});
+
 it('con --solo-lote importa únicamente esa pestaña', function () {
     $path = sanMiguelFixturePath();
 

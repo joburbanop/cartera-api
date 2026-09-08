@@ -11,21 +11,16 @@ final class SanMiguelCustomSchedules
     public const FIRST_INSTALLMENT_DATE = '2025-11-05';
 
     /**
-     * @var array<string, string>
+     * Lotes con plan comercial del PDF (48 promesas). El precio del lote
+     * NO se toma de la cuantía del PDF: sale de Excel A5 (VR LOTE).
+     *
+     * @var list<string>
      */
-    public const SALE_PRICES = [
-        '6' => '130192851.00',
-        '45' => '130643360.00',
-    ];
+    public const LOTS = ['6', '45'];
 
     public static function isCustomLot(string $lotNumber): bool
     {
-        return isset(self::SALE_PRICES[$lotNumber]);
-    }
-
-    public static function salePrice(string $lotNumber): string
-    {
-        return self::SALE_PRICES[$lotNumber];
+        return in_array($lotNumber, self::LOTS, true);
     }
 
     /**

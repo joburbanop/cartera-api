@@ -17,7 +17,9 @@ class RefinanceContractRequest extends FormRequest
         $tipo = (string) $this->input('tipo');
 
         return [
-            'tipo' => ['required', 'in:acuerdo_pago,tiempo_gracia,refinanciar_saldo,exoneracion_intereses'],
+            'tipo' => ['required', 'in:acuerdo_pago,tiempo_gracia,refinanciar_saldo,exoneracion_intereses,liquidacion_contado'],
+            'motivo' => ['required', 'string', 'min:10', 'max:1000'],
+            'idempotency_key' => ['nullable', 'string', 'uuid'],
             'extra_amount' => [
                 Rule::requiredIf($tipo === 'acuerdo_pago'),
                 'numeric',
@@ -40,6 +42,15 @@ class RefinanceContractRequest extends FormRequest
                 'numeric',
                 'min:0',
             ],
+            'new_sale_price' => [
+                Rule::requiredIf($tipo === 'refinanciar_saldo'),
+                'numeric',
+                'gt:0',
+            ],
+            'deferred_interest_action' => [
+                'nullable',
+                Rule::in(['cobrar_aparte', 'condonar']),
+            ],
             'installment_ids' => [
                 Rule::requiredIf($tipo === 'exoneracion_intereses'),
                 'array',
@@ -60,6 +71,10 @@ class RefinanceContractRequest extends FormRequest
         return [
             'tipo.required' => 'Debe indicar el tipo de refinanciación.',
             'tipo.in' => 'El tipo de refinanciación no es válido.',
+            'motivo.required' => 'El motivo de la refinanciación es obligatorio.',
+            'motivo.min' => 'El motivo debe explicar la razón del cambio (al menos 10 caracteres).',
+            'motivo.max' => 'El motivo no puede superar los 1000 caracteres.',
+            'idempotency_key.uuid' => 'La clave de idempotencia no es válida.',
             'extra_amount.required' => 'El abono fijo es obligatorio.',
             'extra_amount.gt' => 'El abono fijo debe ser mayor a cero.',
             'months.required' => 'La cantidad de meses es obligatoria.',
@@ -67,6 +82,9 @@ class RefinanceContractRequest extends FormRequest
             'new_term_months.required' => 'El nuevo plazo es obligatorio.',
             'new_term_months.min' => 'El nuevo plazo debe ser al menos 1 mes.',
             'new_interest_rate.required' => 'La nueva tasa es obligatoria.',
+            'new_sale_price.required' => 'El precio actualizado del lote es obligatorio.',
+            'new_sale_price.gt' => 'El precio actualizado del lote debe ser mayor a cero.',
+            'deferred_interest_action.in' => 'La decisión sobre el interés causado debe ser cobrar aparte o condonar.',
             'installment_ids.required' => 'Debe seleccionar al menos una cuota.',
             'reduction_percent.required' => 'El porcentaje de reducción es obligatorio.',
             'reduction_percent.max' => 'El porcentaje de reducción no puede superar 100.',

@@ -6,6 +6,7 @@ use App\DTOs\ContractPaymentPromiseDTO;
 use App\Enums\PaymentPromiseStatusEnum;
 use App\Models\Contract;
 use App\Models\ContractPaymentPromise;
+use App\Services\Financial\Refinancing\AcuerdoPagoService;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -83,6 +84,12 @@ class ContractPaymentPromiseService
                 continue;
             }
 
+            // Los abonos del acuerdo de pago viven en la misma tabla, pero no
+            // son el plan comercial. No se reemplazan ni se recrean desde aquí.
+            if (trim((string) ($promiseDTO->description ?? '')) === AcuerdoPagoService::DESCRIPTION) {
+                continue;
+            }
+
             $payload[] = [
                 'contract_id' => $contract->id,
                 'payment_number' => $promiseDTO->payment_number,
@@ -98,11 +105,43 @@ class ContractPaymentPromiseService
         }
 
         return DB::transaction(function () use ($contract, $payload) {
-            $contract->paymentPromises()->delete();
+            $contract->paymentPromises()
+                ->where(function ($query) {
+                    $query->whereNull('description')
+                        ->orWhere('description', '!=', AcuerdoPagoService::DESCRIPTION);
+                })
+                ->delete();
 
             $contract->paymentPromises()->createMany($payload);
+            $this->renumberRefinancingPromisesAfterPlan($contract, $payload);
 
             return $this->listWithStatus($contract->id);
         });
+    }
+
+    /**
+     * El plan comercial conserva su numeración 1..N. Los abonos de refinanciación
+     * viven en la misma tabla, así que se corren detrás para que no haya dos
+     * promesas con el mismo payment_number.
+     *
+     * @param  list<array<string, mixed>>  $payload
+     */
+    private function renumberRefinancingPromisesAfterPlan(Contract $contract, array $payload): void
+    {
+        $next = ((int) max(array_column($payload, 'payment_number'))) + 1;
+
+        $refinancings = $contract->paymentPromises()
+            ->where('description', AcuerdoPagoService::DESCRIPTION)
+            ->orderBy('expected_date')
+            ->orderBy('payment_number')
+            ->get();
+
+        foreach ($refinancings as $promise) {
+            if ((int) $promise->payment_number !== $next) {
+                $promise->update(['payment_number' => $next]);
+            }
+
+            $next++;
+        }
     }
 }

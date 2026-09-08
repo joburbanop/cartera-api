@@ -223,9 +223,7 @@ class SanMiguelImportService
         }
 
         $isCustomLot = SanMiguelCustomSchedules::isCustomLot($lot->lotNumber);
-        $salePrice = $isCustomLot
-            ? SanMiguelCustomSchedules::salePrice($lot->lotNumber)
-            : $lot->salePrice;
+        $salePrice = $lot->salePrice;
 
         $lotModel = $this->findLot($project, $lot->lotNumber);
         if (! $lotModel) {
@@ -239,6 +237,8 @@ class SanMiguelImportService
                 'type' => LotType::RESIDENTIAL->value,
                 'created_by' => $this->actorId(),
             ]);
+        } else {
+            $lotModel->update(['list_price' => $salePrice]);
         }
 
         $firstPayment = $lot->payments[0]->date ?? Carbon::now()->startOfDay();

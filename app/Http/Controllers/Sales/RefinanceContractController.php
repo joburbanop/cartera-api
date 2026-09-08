@@ -19,11 +19,13 @@ class RefinanceContractController extends Controller
 
     public function store(RefinanceContractRequest $request, Contract $contract): JsonResponse
     {
-        $this->refinanceContractService->apply($contract, $request->validated());
+        $applied = $this->refinanceContractService->apply($contract, $request->validated());
 
         return $this->successResponse(
             $contract->fresh(['installments', 'paymentPromises']),
-            'Contrato refinanciado exitosamente.',
+            $applied
+                ? 'Contrato refinanciado exitosamente.'
+                : 'Esta refinanciación ya había sido aplicada; no se repitió el cambio.',
         );
     }
 }

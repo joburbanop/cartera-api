@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\Financial\Refinancing\RefinanceContractService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -92,11 +93,33 @@ class ActivityLogIndexTest extends TestCase
         ))->toBeTrue();
     }
 
-    public function test_administrador_y_admin_sistema_reciben_403(): void
+    public function test_administrador_solo_ve_refinanciaciones_del_contrato(): void
     {
-        $this->getJson("/api/activity?subject_type=contract&subject_id={$this->contract->id}")
-            ->assertForbidden();
+        activity()->performedOn($this->contract)->log('Actualizó el contrato');
+        activity(RefinanceContractService::LOG_NAME)
+            ->performedOn($this->contract)
+            ->log('Refinanció el contrato mediante tiempo_gracia');
 
+        $entries = $this->getJson("/api/activity?subject_type=contract&subject_id={$this->contract->id}")
+            ->assertOk()
+            ->json('data.data');
+
+        $this->assertSame(
+            ['Refinanció el contrato mediante tiempo_gracia'],
+            array_column($entries, 'description'),
+        );
+    }
+
+    public function test_administrador_no_puede_consultar_bitacora_de_otros_subjects(): void
+    {
+        foreach (['customer', 'lot', 'project'] as $subjectType) {
+            $this->getJson("/api/activity?subject_type={$subjectType}&subject_id=1")
+                ->assertForbidden();
+        }
+    }
+
+    public function test_admin_sistema_recibe_403(): void
+    {
         $this->actingAsRole(RoleName::ADMIN_SISTEMA->value, User::factory()->create());
 
         $this->getJson("/api/activity?subject_type=contract&subject_id={$this->contract->id}")

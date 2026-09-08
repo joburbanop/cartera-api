@@ -154,6 +154,8 @@ El Excel vive en `app/imports/SAN_MIGUEL_AMORTIZACION_Y_PAGOS.xlsx` (i minúscul
 
 Invariantes esperados (aprox.): 55 lotes, 55 contratos `SM-LOTE-%`, 56 clientes SM, **653** transacciones, recaudo **$2.600.440.231**, Lote 1 `principal_paid` de la inicial = `10500000.00`.
 
+`$2.600.440.231` / 653 transacciones es la **línea base de la carga histórica** de San Miguel, no un techo. Los pagos posteriores (cuotas, extraordinarios o `interes_diferido`) la mueven hacia arriba de forma esperada: no es un descuadre.
+
 ### `--fresh` — no lo uses en producción salvo desastre consciente
 
 `php artisan import:san-miguel --fresh` **borra** los contratos de San Miguel (incluidos los de PRUEBA), deja los lotes en `disponible` y no borra los PDF de recibos del disco. Es irreversible para esos contratos.

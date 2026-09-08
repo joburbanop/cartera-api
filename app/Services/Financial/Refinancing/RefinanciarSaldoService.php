@@ -3,28 +3,58 @@
 namespace App\Services\Financial\Refinancing;
 
 use App\Enums\AmortizationStatus;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Services\Financial\Amortization\AmortizationCalculationService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class RefinanciarSaldoService implements RefinanceStrategy
 {
+    public const ACTION_COBRAR_APARTE = 'cobrar_aparte';
+
+    public const ACTION_CONDONAR = 'condonar';
+
     public function __construct(
         private readonly AmortizationCalculationService $calculationService,
     ) {}
 
+    public function affectedInstallments(Contract $contract, array $params): Collection
+    {
+        $anchor = $this->anchorFor($contract);
+
+        if (! $anchor) {
+            return new Collection();
+        }
+
+        return $contract->amortizationInstallments()
+            ->where('installment_number', '>=', (int) $anchor->installment_number)
+            ->orderBy('installment_number')
+            ->get();
+    }
+
     public function apply(Contract $contract, array $params): void
     {
+        $newSalePrice = $this->money($params['new_sale_price'] ?? null);
         $newTerm = (int) $params['new_term_months'];
         $newRate = bcadd((string) $params['new_interest_rate'], '0', 2);
+        $action = (string) ($params['deferred_interest_action'] ?? '');
 
-        $anchor = $contract->amortizationInstallments()
-            ->where('status', '!=', AmortizationStatus::PAID->value)
-            ->where('installment_number', '>', 0)
-            ->orderBy('installment_number')
+        if (bccomp($newSalePrice, '0.00', 2) <= 0) {
+            throw ValidationException::withMessages([
+                'new_sale_price' => 'El precio actualizado del lote debe ser mayor a cero.',
+            ]);
+        }
+
+        $initial = $contract->amortizationInstallments()
+            ->where('installment_number', 0)
             ->first();
+
+        RefinancingGuards::assertInitialInstallmentIsClosed($initial);
+
+        $anchor = $this->anchorFor($contract);
 
         if (! $anchor) {
             throw ValidationException::withMessages([
@@ -32,25 +62,38 @@ class RefinanciarSaldoService implements RefinanceStrategy
             ]);
         }
 
-        $previous = $contract->amortizationInstallments()
-            ->where('installment_number', (int) $anchor->installment_number - 1)
-            ->first();
+        RefinancingGuards::assertAnchorIsNotPartiallyPaid($anchor);
 
-        $balance = $previous
-            ? $this->money($previous->remaining_balance ?? $previous->projected_balance ?? '0.00')
-            : $this->money(bcsub(
-                $this->money($contract->sale_price ?? '0.00'),
-                $this->money($contract->down_payment_pactada ?? '0.00'),
-                2
-            ));
+        $toReplace = $this->affectedInstallments($contract, $params);
+        $accruedUnpaidInterest = $this->accruedUnpaidInterestOf($toReplace);
 
-        if (bccomp($balance, '0.00', 2) <= 0) {
+        if (bccomp($accruedUnpaidInterest, '0.00', 2) > 0) {
+            if (! in_array($action, [self::ACTION_COBRAR_APARTE, self::ACTION_CONDONAR], true)) {
+                throw ValidationException::withMessages([
+                    'deferred_interest_action' => 'Debe indicar si el interés causado no pagado se cobra aparte o se condona.',
+                ]);
+            }
+        } else {
+            $action = self::ACTION_CONDONAR;
+        }
+
+        $newDown = $this->sumPrincipalPaid($contract);
+        $newPrincipal = bcsub($newSalePrice, $newDown, 2);
+
+        if (bccomp($newPrincipal, '0.00', 2) <= 0) {
             throw ValidationException::withMessages([
-                'new_term_months' => 'El saldo pendiente es cero; no hay nada que refinanciar.',
+                'new_sale_price' => sprintf(
+                    'El capital neto a financiar sería %s (precio %s − capital pagado %s). '
+                    .'Debe ser mayor a cero.',
+                    number_format((float) $newPrincipal, 2, ',', '.'),
+                    number_format((float) $newSalePrice, 2, ',', '.'),
+                    number_format((float) $newDown, 2, ',', '.'),
+                ),
             ]);
         }
 
-        $quota = $this->calculationService->calculateFixedQuota($balance, $newRate, $newTerm);
+        // Mismos helpers del motor; solo cambia el capital de entrada.
+        $quota = $this->calculationService->calculateFixedQuota($newPrincipal, $newRate, $newTerm);
         $anchorNumber = (int) $anchor->installment_number;
         $dueDate = Carbon::parse((string) $anchor->due_date)->startOfDay();
         $hasReceiptNumber = Schema::hasColumn('amortization_installments', 'receipt_number');
@@ -60,7 +103,7 @@ class RefinanciarSaldoService implements RefinanceStrategy
             ->delete();
 
         $rows = [];
-        $runningBalance = $balance;
+        $runningBalance = $newPrincipal;
 
         for ($index = 1; $index <= $newTerm; $index++) {
             $interest = $this->calculationService->calculateInterest($runningBalance, $newRate);
@@ -107,10 +150,57 @@ class RefinanciarSaldoService implements RefinanceStrategy
             $contract->amortizationInstallments()->insert($rows);
         }
 
+        $currentDeferred = $this->money($contract->deferred_interest_balance ?? '0.00');
+        $nextDeferred = $action === self::ACTION_COBRAR_APARTE
+            ? bcadd($currentDeferred, $accruedUnpaidInterest, 2)
+            : $currentDeferred;
+
         $contract->update([
+            'sale_price' => $newSalePrice,
+            'down_payment_pactada' => $newDown,
+            'deferred_interest_balance' => $nextDeferred,
             'term_months' => ($anchorNumber - 1) + $newTerm,
             'interest_rate' => $newRate,
         ]);
+    }
+
+    /**
+     * @param  Collection<int, AmortizationInstallment>  $installments
+     */
+    public function accruedUnpaidInterestOf(Collection $installments): string
+    {
+        $total = '0.00';
+
+        foreach ($installments as $row) {
+            $interest = $this->money($row->interest_value ?? '0');
+            $paid = $this->money($row->interest_paid ?? '0');
+            $unpaid = bcsub($interest, $paid, 2);
+            if (bccomp($unpaid, '0.00', 2) > 0) {
+                $total = bcadd($total, $unpaid, 2);
+            }
+        }
+
+        return $total;
+    }
+
+    private function sumPrincipalPaid(Contract $contract): string
+    {
+        $total = '0.00';
+
+        foreach ($contract->amortizationInstallments()->get() as $row) {
+            $total = bcadd($total, $this->money($row->principal_paid ?? '0'), 2);
+        }
+
+        return $total;
+    }
+
+    private function anchorFor(Contract $contract): ?AmortizationInstallment
+    {
+        return $contract->amortizationInstallments()
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->where('installment_number', '>', 0)
+            ->orderBy('installment_number')
+            ->first();
     }
 
     private function money(mixed $value): string

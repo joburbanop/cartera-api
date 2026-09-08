@@ -12,6 +12,7 @@ use App\Models\Lot;
 use App\Models\Project;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Financial\Refinancing\AcuerdoPagoService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -157,6 +158,159 @@ class PaymentPromiseStatusAndReorderTest extends TestCase
                 ['id' => $this->promiseC->id, 'expected_date' => '2027-05-05'],
             ],
         ])->assertForbidden();
+    }
+
+    public function test_guardar_plan_comercial_no_borra_abonos_de_refinanciacion(): void
+    {
+        $refiA = ContractPaymentPromise::query()->create([
+            'contract_id' => $this->contract->id,
+            'payment_number' => 4,
+            'expected_date' => '2027-06-05',
+            'expected_amount' => '250000.00',
+            'description' => AcuerdoPagoService::DESCRIPTION,
+            'is_paid' => false,
+        ]);
+        $refiB = ContractPaymentPromise::query()->create([
+            'contract_id' => $this->contract->id,
+            'payment_number' => 5,
+            'expected_date' => '2027-07-05',
+            'expected_amount' => '250000.00',
+            'description' => AcuerdoPagoService::DESCRIPTION,
+            'is_paid' => false,
+        ]);
+
+        $this->postJson("/api/contracts/{$this->contract->id}/payment-promises", [
+            'promises' => [
+                [
+                    'payment_number' => 1,
+                    'expected_date' => '2027-03-10',
+                    'expected_amount' => '1200000.00',
+                    'description' => 'Cuota comercial 1',
+                ],
+                [
+                    'payment_number' => 2,
+                    'expected_date' => '2027-04-10',
+                    'expected_amount' => '900000.00',
+                    'description' => 'Cuota comercial 2',
+                ],
+            ],
+        ])->assertCreated();
+
+        $commercial = ContractPaymentPromise::query()
+            ->where('contract_id', $this->contract->id)
+            ->where('description', '!=', AcuerdoPagoService::DESCRIPTION)
+            ->orderBy('payment_number')
+            ->get();
+
+        $refinance = ContractPaymentPromise::query()
+            ->where('contract_id', $this->contract->id)
+            ->where('description', AcuerdoPagoService::DESCRIPTION)
+            ->orderBy('payment_number')
+            ->get();
+
+        $this->assertCount(2, $commercial);
+        $this->assertSame(['1200000.00', '900000.00'], $commercial->pluck('expected_amount')->map(
+            fn ($v) => number_format((float) $v, 2, '.', '')
+        )->all());
+        $this->assertSame(['Cuota comercial 1', 'Cuota comercial 2'], $commercial->pluck('description')->all());
+
+        $this->assertCount(2, $refinance);
+        $this->assertTrue($refinance->contains(fn ($row) => (int) $row->id === $refiA->id));
+        $this->assertTrue($refinance->contains(fn ($row) => (int) $row->id === $refiB->id));
+        $this->assertSame('250000.00', number_format((float) $refiA->fresh()->expected_amount, 2, '.', ''));
+        $this->assertSame('2027-06-05', $refiA->fresh()->expected_date->toDateString());
+        $this->assertSame('2027-07-05', $refiB->fresh()->expected_date->toDateString());
+
+        $this->assertDatabaseMissing('contract_payment_promises', ['id' => $this->promiseA->id]);
+        $this->assertDatabaseMissing('contract_payment_promises', ['id' => $this->promiseB->id]);
+        $this->assertDatabaseMissing('contract_payment_promises', ['id' => $this->promiseC->id]);
+    }
+
+    public function test_guardar_plan_comercial_corre_los_abonos_de_refinanciacion_para_no_repetir_numero(): void
+    {
+        foreach ([['2027-06-05', 4], ['2027-07-05', 5], ['2027-08-05', 6]] as [$fecha, $numero]) {
+            ContractPaymentPromise::query()->create([
+                'contract_id' => $this->contract->id,
+                'payment_number' => $numero,
+                'expected_date' => $fecha,
+                'expected_amount' => '250000.00',
+                'description' => AcuerdoPagoService::DESCRIPTION,
+                'is_paid' => false,
+            ]);
+        }
+
+        $this->postJson("/api/contracts/{$this->contract->id}/payment-promises", [
+            'promises' => [
+                ['payment_number' => 1, 'expected_date' => '2027-03-10', 'expected_amount' => '1200000.00', 'description' => 'Cuota comercial 1'],
+                ['payment_number' => 2, 'expected_date' => '2027-04-10', 'expected_amount' => '900000.00', 'description' => 'Cuota comercial 2'],
+            ],
+        ])->assertCreated();
+
+        $todas = ContractPaymentPromise::query()
+            ->where('contract_id', $this->contract->id)
+            ->orderBy('payment_number')
+            ->get();
+
+        $numeros = $todas->pluck('payment_number')->map(fn ($n) => (int) $n)->all();
+        $this->assertSame([1, 2, 3, 4, 5], $numeros, 'no debe haber payment_number repetido');
+
+        $this->assertSame(
+            ['Cuota comercial 1', 'Cuota comercial 2'],
+            $todas->take(2)->pluck('description')->all(),
+            'el plan comercial conserva la numeración 1..N',
+        );
+        $this->assertSame(
+            ['2027-06-05', '2027-07-05', '2027-08-05'],
+            $todas->slice(2)->map(fn ($p) => $p->expected_date->toDateString())->values()->all(),
+            'los abonos de refinanciación quedan detrás y en su orden de fechas',
+        );
+    }
+
+    public function test_guardar_plan_comercial_ignora_filas_con_descripcion_de_refinanciacion(): void
+    {
+        ContractPaymentPromise::query()->create([
+            'contract_id' => $this->contract->id,
+            'payment_number' => 10,
+            'expected_date' => '2027-08-05',
+            'expected_amount' => '300000.00',
+            'description' => AcuerdoPagoService::DESCRIPTION,
+            'is_paid' => false,
+        ]);
+
+        $this->postJson("/api/contracts/{$this->contract->id}/payment-promises", [
+            'promises' => [
+                [
+                    'payment_number' => 1,
+                    'expected_date' => '2027-03-10',
+                    'expected_amount' => '1000000.00',
+                    'description' => 'Cuota comercial',
+                ],
+                [
+                    'payment_number' => 2,
+                    'expected_date' => '2027-04-10',
+                    'expected_amount' => '999999.00',
+                    'description' => AcuerdoPagoService::DESCRIPTION,
+                ],
+            ],
+        ])->assertCreated();
+
+        $this->assertSame(1, ContractPaymentPromise::query()
+            ->where('contract_id', $this->contract->id)
+            ->where('description', '!=', AcuerdoPagoService::DESCRIPTION)
+            ->count());
+
+        $this->assertSame(1, ContractPaymentPromise::query()
+            ->where('contract_id', $this->contract->id)
+            ->where('description', AcuerdoPagoService::DESCRIPTION)
+            ->count());
+
+        $this->assertSame(
+            '300000.00',
+            number_format((float) ContractPaymentPromise::query()
+                ->where('contract_id', $this->contract->id)
+                ->where('description', AcuerdoPagoService::DESCRIPTION)
+                ->value('expected_amount'), 2, '.', ''),
+        );
     }
 
     private function createPromise(int $number, string $date, string $amount): ContractPaymentPromise

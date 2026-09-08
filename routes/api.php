@@ -41,7 +41,7 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     // admin_sistema recibe listas vacías. El menú oculta la búsqueda.
     Route::get('/search', [SearchController::class, 'index']);
     Route::get('/activity', [ActivityController::class, 'index'])
-        ->middleware('permission:bitacora.view');
+        ->middleware('permission:bitacora.view|refinancings.view');
 
     Route::get('/dashboard/system-users', [DashboardController::class, 'systemUsers'])
         ->middleware('permission:users.manage');

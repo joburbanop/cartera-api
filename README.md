@@ -116,9 +116,15 @@ Sigue estos pasos para levantar el backend en tu entorno local:
 
   **Excluidos del overlay (fase 2):**
   - Lotes **3, 16 y 54**: el Excel no cuadra con la caja de forma segura (extras no anotados, pagos cortos mezclados con rangos CUOTA n–m mal pintados). Quedan como sale la cascada del historial.
-  - Lotes **6 y 45**: plan comercial PDF (`is_custom_plan`, 48 `ContractPaymentPromise`, precios $130.192.851 / $130.643.360). La tabla francesa del Excel no es la fuente.
+  - Lotes **6 y 45**: plan comercial del PDF (`is_custom_plan`, 48 `ContractPaymentPromise`). El precio del lote sale de Excel A5 (VR LOTE: $105.196.000 / $105.560.000), no de la cuantía del PDF. La tabla francesa del Excel no es la fuente de las 48 cuotas comerciales.
+
+  **Precio del lote vs valor futuro (no confundir al armar la hoja de vida):**
+  - `sale_price` / Excel **VR LOTE (A5)** = precio del lote. Es el capital del negocio.
+  - **VALOR LOTE FINANCIADO** / cuantía de la promesa PDF = valor futuro: inicial + suma de las 48 cuotas comerciales, **con interés incluido**. No es el precio. Cargarlo como `sale_price` infla el capital, la PMT francesa y la mora. En 6 y 45 esa cuantía es $130.192.851 / $130.643.360.
 
   `--solo-lote=N` limita la fase 1 (y 2-4 si aplica) a esa pestaña. `--dry-run` valida el Excel sin escribir.
+
+  **Línea base de recaudo:** tras la carga, el recaudo histórico es **$2.600.440.231** (653 transacciones). Ese número es la foto de San Miguel al importar, no un tope. Cualquier pago posterior —incluida la transacción `interes_diferido` del saldo diferido de una refinanciación— lo sube de forma esperada.
 
 - **Ejecutar colas (Workers) en desarrollo:**
 

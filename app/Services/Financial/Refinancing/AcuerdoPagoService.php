@@ -5,10 +5,17 @@ namespace App\Services\Financial\Refinancing;
 use App\Enums\AmortizationStatus;
 use App\Models\Contract;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 
 class AcuerdoPagoService implements RefinanceStrategy
 {
     public const DESCRIPTION = 'Abono fijo de refinanciación';
+
+    public function affectedInstallments(Contract $contract, array $params): Collection
+    {
+        // El acuerdo de pago solo agrega promesas de abono; no toca cuotas.
+        return new Collection();
+    }
 
     public function apply(Contract $contract, array $params): void
     {
