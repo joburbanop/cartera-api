@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Services\Dashboard\DashboardMetricsService;
+use App\Services\Dashboard\SystemUsersDashboardService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 
@@ -14,8 +15,17 @@ class DashboardController extends Controller
     use ApiResponse;
 
     public function __construct(
-        protected DashboardMetricsService $dashboardMetricsService
+        protected DashboardMetricsService $dashboardMetricsService,
+        protected SystemUsersDashboardService $systemUsersDashboardService
     ) {}
+
+    public function systemUsers(): JsonResponse
+    {
+        return $this->successResponse(
+            $this->systemUsersDashboardService->summary(),
+            'Resumen de usuarios del sistema obtenido exitosamente.'
+        );
+    }
 
     public function carteraMora(): JsonResponse
     {

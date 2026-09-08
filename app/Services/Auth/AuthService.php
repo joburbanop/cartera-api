@@ -29,6 +29,8 @@ class AuthService
             ]);
         }
 
+        $user->forceFill(['last_login_at' => now()])->save();
+
         $presented = $this->userService->presentUser($user);
         $token = $user->createToken('auth_token')->plainTextToken;
 

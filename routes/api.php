@@ -37,10 +37,14 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     
     Route::get('/lots/archived', [LotController::class, 'archived'])
         ->middleware('permission:lots.manage');
+    // Deuda menor: sin permission en la ruta. SearchService ya filtra y
+    // admin_sistema recibe listas vacías. El menú oculta la búsqueda.
     Route::get('/search', [SearchController::class, 'index']);
     Route::get('/activity', [ActivityController::class, 'index'])
         ->middleware('permission:bitacora.view');
 
+    Route::get('/dashboard/system-users', [DashboardController::class, 'systemUsers'])
+        ->middleware('permission:users.manage');
     Route::get('/dashboard/cartera-mora', [DashboardController::class, 'carteraMora'])
         ->middleware('permission:amortization.view|contracts.manage');
     Route::get('/dashboard/recaudo-reciente', [DashboardController::class, 'recaudoReciente'])
