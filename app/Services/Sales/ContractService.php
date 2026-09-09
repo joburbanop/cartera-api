@@ -11,6 +11,7 @@ use App\Models\Contract;
 use App\Models\Lot;
 use App\Services\ContractPaymentPromiseService;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Support\FinancialRules;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -48,7 +49,11 @@ class ContractService
                 'sale_price' => $dto->salePrice,
                 'down_payment_pactada' => $dto->downPaymentPactada,
                 'term_months' => $dto->termMonths,
-                'interest_rate' => $dto->interestRate,
+                'interest_rate' => FinancialRules::effectiveInterestRate(
+                    $dto->termMonths,
+                    $dto->interestRate,
+                    $dto->isSpecialLot,
+                ),
                 'start_date' => $dto->startDate,
                 'initial_payment_date' => $dto->initialPaymentDate,
                 'first_installment_date' => $dto->firstInstallmentDate,

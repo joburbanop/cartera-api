@@ -78,6 +78,20 @@
         </div>
     </div>
 
+    @if (!empty($lifeSheetSummary))
+        <p class="muted">{{ $lifeSheetSummary['amortization_note'] }}</p>
+        <div class="meta">
+            <div>
+                <p><strong>Capital insoluto:</strong> $ {{ number_format((float) $lifeSheetSummary['outstanding_capital'], 2, ',', '.') }}</p>
+                <p><strong>Saldo hoja de vida:</strong> $ {{ number_format((float) $lifeSheetSummary['life_sheet_balance'], 2, ',', '.') }}</p>
+            </div>
+            <div>
+                <p><strong>{{ $lifeSheetSummary['criteria_gap_label'] }}:</strong> $ {{ number_format((float) $lifeSheetSummary['criteria_gap'], 2, ',', '.') }}</p>
+                <p class="muted">{{ $lifeSheetSummary['criteria_gap_hint'] }}</p>
+            </div>
+        </div>
+    @endif
+
     <table>
         <thead>
             <tr>

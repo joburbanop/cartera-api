@@ -151,7 +151,7 @@ it('cascada el excedente de la cuota vencida a la siguiente pendiente, interés 
     $result = app(CascadeCollectionService::class)->process(
         $contract->id,
         '1300.00',
-        null,
+        'adelantar_cuotas',
         Carbon::parse(now()->toDateString()),
         [(int) $four->id],
     );

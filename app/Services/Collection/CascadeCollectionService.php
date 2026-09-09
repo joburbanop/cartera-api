@@ -20,9 +20,13 @@ use Illuminate\Validation\ValidationException;
 
 class CascadeCollectionService
 {
+    public const SURPLUS_ACTION_REQUIRED = 'Este pago supera lo que se debe. Indica qué hacer con el excedente.';
+
     public function __construct(
         private readonly ExtraordinaryPaymentService $extraordinaryPaymentService,
         private readonly InstallmentPaymentAllocator $allocator,
+        private readonly TransactionAllocationRecorder $allocationRecorder,
+        private readonly PaymentPromiseAllocationService $promiseAllocationService,
     ) {}
 
     public function process(
@@ -35,8 +39,9 @@ class CascadeCollectionService
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
         bool $persistTransaction = true,
+        ?int $allocationTransactionId = null,
     ): array {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction) {
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction, $allocationTransactionId) {
             $contract = Contract::findOrFail($contractId);
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
@@ -69,6 +74,11 @@ class CascadeCollectionService
                 }
             }
 
+            $willRecordAllocations = $persistTransaction || $allocationTransactionId !== null;
+            $allocationSnapshots = $willRecordAllocations
+                ? $this->allocationRecorder->snapshotRegulars($contract)
+                : [];
+
             $pendingInstallments = $this->getPendingInstallments($contract, $selectedInstallmentIds)->values();
             $totalInstallments = $pendingInstallments->count();
             $processedIds = [];
@@ -82,7 +92,11 @@ class CascadeCollectionService
                     continue;
                 }
 
-                $isLastSelected = $hasExplicitSelection && $hasExtraordinaryOption && ($index === $totalInstallments - 1);
+                // Solo plazo/cuota absorben el sobrante en la última seleccionada.
+                // Adelantar cuotas deja el resto para la cascada FIFO.
+                $isLastSelected = $hasExplicitSelection
+                    && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota'], true)
+                    && ($index === $totalInstallments - 1);
                 $balanceDue = $this->normalizeMoney((string) ($installment->quota_debt ?? $installment->remaining_balance ?? $installment->installment_value ?? '0.00'));
                 $amountToDebt = bccomp($availableAmount, $balanceDue, 2) <= 0
                     ? $availableAmount
@@ -197,21 +211,57 @@ class CascadeCollectionService
                 }
             }
 
-            if (! $hasExtraordinaryOption && $this->allocator->leftoverExceedsTolerance($availableAmount)) {
-                $cascade = $this->allocator->cascadeToPending(
-                    $contract,
-                    $availableAmount,
-                    $effectiveTransactionDate,
-                    $processedIds,
-                );
+            if ($this->allocator->leftoverExceedsTolerance($availableAmount)) {
+                if ($normalizedPaymentOption === 'adelantar_cuotas') {
+                    $cascade = $this->allocator->cascadeToPending(
+                        $contract,
+                        $availableAmount,
+                        $effectiveTransactionDate,
+                        $processedIds,
+                    );
 
-                foreach ($cascade['installments'] as $applied) {
-                    $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $applied['amount_applied'], 2));
-                    $appliedInstallments[] = $applied;
-                    $processedIds[] = (int) $applied['installment_id'];
+                    foreach ($cascade['installments'] as $applied) {
+                        $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $applied['amount_applied'], 2));
+                        $appliedInstallments[] = $applied;
+                        $processedIds[] = (int) $applied['installment_id'];
+                    }
+
+                    $availableAmount = $cascade['remaining'];
+                } elseif ($normalizedPaymentOption === null || $normalizedPaymentOption === '') {
+                    if (bccomp($processedAmount, '0.00', 2) > 0) {
+                        throw ValidationException::withMessages([
+                            'payment_option' => self::SURPLUS_ACTION_REQUIRED,
+                        ]);
+                    }
+
+                    // Pago general sin mora ni selección: cubre la siguiente
+                    // cuota. Si alcanza para más, ya es excedente.
+                    $cascade = $this->allocator->cascadeToPending(
+                        $contract,
+                        $availableAmount,
+                        $effectiveTransactionDate,
+                        $processedIds,
+                    );
+
+                    if ($cascade['installments'] !== []
+                        && (
+                            count($cascade['installments']) > 1
+                            || $this->allocator->leftoverExceedsTolerance($cascade['remaining'])
+                        )
+                    ) {
+                        throw ValidationException::withMessages([
+                            'payment_option' => self::SURPLUS_ACTION_REQUIRED,
+                        ]);
+                    }
+
+                    foreach ($cascade['installments'] as $applied) {
+                        $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $applied['amount_applied'], 2));
+                        $appliedInstallments[] = $applied;
+                        $processedIds[] = (int) $applied['installment_id'];
+                    }
+
+                    $availableAmount = $cascade['remaining'];
                 }
-
-                $availableAmount = $cascade['remaining'];
             }
 
             if (
@@ -221,6 +271,24 @@ class CascadeCollectionService
                 throw ValidationException::withMessages([
                     'amount' => 'La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.',
                 ]);
+            }
+
+            $recordedTransactionId = $transaction?->id ?? $allocationTransactionId;
+            if ($recordedTransactionId && $appliedInstallments !== []) {
+                $this->allocationRecorder->recordAppliedInstallments(
+                    $recordedTransactionId,
+                    $appliedInstallments,
+                    $allocationSnapshots,
+                );
+
+                $sourceTransaction = $transaction ?? Transaction::query()->find($recordedTransactionId);
+                if ($sourceTransaction) {
+                    $this->promiseAllocationService->allocate(
+                        $contract,
+                        $sourceTransaction,
+                        $processedAmount,
+                    );
+                }
             }
 
             return [

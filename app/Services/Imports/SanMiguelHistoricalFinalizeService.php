@@ -7,38 +7,26 @@ use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Services\Financial\Amortization\AdjustInstallmentDueDatesService;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class SanMiguelHistoricalFinalizeService
 {
     public function __construct(
-        private readonly ExcelScheduleImportService $excelScheduleImportService,
         private readonly AdjustInstallmentDueDatesService $dueDatesService,
     ) {}
 
     /**
+     * Alinea las fechas de vencimiento con la columna Nper del libro de
+     * amortización. Es lo único que la hoja de vida no puede aportar: ahí solo
+     * se anotan fechas de pago, nunca de vencimiento.
+     *
      * @return array<string, mixed>
      */
     public function run(string $workbookPath, ?string $soloLote = null): array
     {
-        $overlayLots = ExcelScheduleImportService::LOTS;
-        $orphanLots = array_keys(SanMiguelHistoricalAlignments::ORPHAN_EXTRAS_ON_FIRST_INSTALLMENT);
         $dateLots = $this->dateAlignmentLots();
 
         if ($soloLote !== null && $soloLote !== '') {
-            $overlayLots = array_values(array_filter($overlayLots, fn ($lot) => $lot === $soloLote));
-            $orphanLots = array_values(array_filter($orphanLots, fn ($lot) => $lot === $soloLote));
             $dateLots = array_values(array_filter($dateLots, fn ($lot) => $lot === $soloLote));
-        }
-
-        $overlay = [];
-        foreach ($overlayLots as $lot) {
-            $overlay[$lot] = count($this->excelScheduleImportService->apply($lot, $workbookPath));
-        }
-
-        $orphans = [];
-        foreach ($orphanLots as $lot) {
-            $orphans[$lot] = $this->applyOrphanExtra($lot);
         }
 
         $dates = [];
@@ -47,8 +35,6 @@ class SanMiguelHistoricalFinalizeService
         }
 
         return [
-            'overlay_lots' => $overlay,
-            'orphan_extras' => $orphans,
             'due_dates' => $dates,
         ];
     }
@@ -64,54 +50,6 @@ class SanMiguelHistoricalFinalizeService
             SanMiguelHistoricalAlignments::MONTH_END_CASCADE_FROM_FIRST,
             [SanMiguelHistoricalAlignments::LOT_21],
         )));
-    }
-
-    private function applyOrphanExtra(string $lotNumber): string
-    {
-        $amount = SanMiguelHistoricalAlignments::ORPHAN_EXTRAS_ON_FIRST_INSTALLMENT[$lotNumber];
-        $contract = $this->contract($lotNumber);
-        $first = $contract->amortizationInstallments()
-            ->where('installment_number', 1)
-            ->first();
-        if (! $first) {
-            throw new \RuntimeException("SM-LOTE-{$lotNumber} no tiene cuota #1 para el abono huérfano.");
-        }
-
-        $receipt = $first->receipt_number;
-
-        DB::transaction(function () use ($contract, $first, $amount) {
-            $extra = bcadd((string) $first->extra_payment, $amount, 2);
-            $remaining = $this->maxMoney('0.00', bcsub((string) $first->remaining_balance, $amount, 2));
-            $principalPaid = bcadd((string) ($first->principal_paid ?? '0.00'), $amount, 2);
-            $principalValue = bcadd((string) ($first->principal_value ?? '0.00'), $amount, 2);
-
-            $first->update([
-                'extra_payment' => $extra,
-                'remaining_balance' => $remaining,
-                'projected_balance' => $remaining,
-                'principal_paid' => $principalPaid,
-                'principal_value' => $principalValue,
-            ]);
-
-            $later = $contract->amortizationInstallments()
-                ->where('installment_number', '>', 1)
-                ->orderBy('installment_number')
-                ->get();
-            foreach ($later as $row) {
-                $saldo = $this->maxMoney('0.00', bcsub((string) $row->remaining_balance, $amount, 2));
-                $row->update([
-                    'remaining_balance' => $saldo,
-                    'projected_balance' => $saldo,
-                ]);
-            }
-        });
-
-        $fresh = $first->fresh();
-        if ((string) $fresh->receipt_number !== (string) $receipt) {
-            throw new \RuntimeException("SM-LOTE-{$lotNumber}: se alteró receipt_number de la cuota #1.");
-        }
-
-        return $amount;
     }
 
     private function alignDueDates(string $lotNumber): string
@@ -206,10 +144,5 @@ class SanMiguelHistoricalFinalizeService
         }
 
         return $contract;
-    }
-
-    private function maxMoney(string $left, string $right): string
-    {
-        return bccomp($left, $right, 2) >= 0 ? $left : $right;
     }
 }

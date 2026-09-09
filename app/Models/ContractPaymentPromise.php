@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ContractPaymentPromise extends Model
 {
@@ -31,5 +32,10 @@ class ContractPaymentPromise extends Model
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
+    }
+
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(PaymentPromiseAllocation::class, 'payment_promise_id');
     }
 }

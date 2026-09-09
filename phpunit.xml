@@ -12,6 +12,16 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!--
+      Compara filtros contra cartera_db local. El conteo cambia cada vez que
+      alguien opera desde la interfaz, así que no corre en la suite general.
+      Se lanza a propósito con el grupo live-db.
+    -->
+    <groups>
+        <exclude>
+            <group>live-db</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>

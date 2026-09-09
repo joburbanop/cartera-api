@@ -92,6 +92,9 @@ it('no atribuye created_by al usuario 1 al crear un cliente autenticado', functi
         'document_number' => '1088001122',
         'name' => 'Cliente Atribuido',
         'phone' => '3002223344',
+        'email' => 'cliente.atribuido@example.com',
+        'address' => 'Calle 1 # 2-3',
+        'city' => 'Cali',
     ])->assertCreated();
 
     $customer = Customer::query()->where('document_number', '1088001122')->firstOrFail();

@@ -8,6 +8,7 @@ use App\DTOs\LoginDTO;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ChangeOwnPasswordRequest;
 use App\Http\Requests\LoginRequest;
+use App\Http\Requests\UpdateOwnPreferencesRequest;
 use App\Services\Auth\AuthService;
 use App\Services\Security\UserService;
 use App\Traits\ApiResponse;
@@ -71,5 +72,15 @@ class AuthController extends Controller
             $this->userService->presentUser($user->fresh(['roles']) ?? $user),
             'Contraseña actualizada exitosamente.'
         );
+    }
+
+    public function updatePreferences(UpdateOwnPreferencesRequest $request): JsonResponse
+    {
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+
+        return $this->successResponse([
+            'ui_preferences' => $this->userService->updateUiPreferences($user, $request->validated()),
+        ], 'Preferencias actualizadas.');
     }
 }

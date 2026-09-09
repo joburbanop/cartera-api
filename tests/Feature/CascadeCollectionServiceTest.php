@@ -103,7 +103,7 @@ it('continues the cascade to the next installment when no payment option is prov
     ]);
 
     $service = app(CascadeCollectionService::class);
-    $result = $service->process($contract->id, '1500.00', null);
+    $result = $service->process($contract->id, '1500.00', 'adelantar_cuotas');
 
     $nextInstallment = $contract->amortizationInstallments()->where('installment_number', 2)->first();
 
@@ -344,7 +344,7 @@ it('cascades leftover to unselected pending installments when no extraordinary o
     $result = app(CascadeCollectionService::class)->process(
         $contract->id,
         '1500.00',
-        null,
+        'adelantar_cuotas',
         null,
         [$first->id],
     );
@@ -356,6 +356,86 @@ it('cascades leftover to unselected pending installments when no extraordinary o
         ->and($second->fresh()->quota_debt)->toBe('500.00')
         ->and($third->fresh()->status)->toBe(AmortizationStatus::PENDING)
         ->and($third->fresh()->quota_debt)->toBe('1000.00');
+});
+
+it('rechaza el excedente si no indican qué hacer con él', function () {
+    $project = Project::create([
+        'name' => 'Proyecto Excedente sin acción',
+        'description' => 'Proyecto de prueba',
+        'location' => 'Bogotá',
+        'status' => 'active',
+    ]);
+    $customer = Customer::create([
+        'document_type' => 'CC',
+        'document_number' => '1000000099',
+        'name' => 'Cliente Excedente',
+        'phone' => '3000000099',
+    ]);
+    $lot = Lot::create([
+        'project_id' => $project->id,
+        'number' => 'C-199',
+        'area_m2' => 80,
+        'price_m2' => 1000,
+        'list_price' => 80000,
+        'status' => 'disponible',
+        'type' => 'residential',
+    ]);
+    $contract = Contract::create([
+        'contract_number' => 'CT-1099',
+        'customer_id' => $customer->id,
+        'lot_id' => $lot->id,
+        'seller_name' => 'Vendedor',
+        'sale_price' => 1000,
+        'down_payment_pactada' => 0,
+        'term_months' => 2,
+        'interest_rate' => 0,
+        'start_date' => now()->subMonths(2)->toDateString(),
+        'initial_payment_date' => now()->subMonths(2)->toDateString(),
+        'first_installment_date' => now()->subMonth()->toDateString(),
+        'regular_payment_start_date' => now()->subMonth()->toDateString(),
+        'preventa_installments_count' => 0,
+        'status' => 'activo',
+    ]);
+    $contract->amortizationInstallments()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 1,
+        'due_date' => now()->subMonth()->toDateString(),
+        'installment_value' => 1000,
+        'principal_value' => 1000,
+        'interest_value' => 0,
+        'extra_payment' => 0,
+        'remaining_balance' => 1000,
+        'projected_balance' => 1000,
+        'interest_paid' => 0,
+        'principal_paid' => 0,
+        'quota_debt' => 1000,
+        'status' => AmortizationStatus::PENDING->value,
+    ]);
+    $contract->amortizationInstallments()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 2,
+        'due_date' => now()->toDateString(),
+        'installment_value' => 1000,
+        'principal_value' => 1000,
+        'interest_value' => 0,
+        'extra_payment' => 0,
+        'remaining_balance' => 1000,
+        'projected_balance' => 1000,
+        'interest_paid' => 0,
+        'principal_paid' => 0,
+        'quota_debt' => 1000,
+        'status' => AmortizationStatus::PENDING->value,
+    ]);
+
+    try {
+        app(CascadeCollectionService::class)->process($contract->id, '1500.00', null);
+        expect(false)->toBeTrue('Se esperaba ValidationException');
+    } catch (ValidationException $e) {
+        expect($e->errors()['payment_option'][0])->toBe(CascadeCollectionService::SURPLUS_ACTION_REQUIRED);
+    }
+
+    expect($contract->amortizationInstallments()->where('status', AmortizationStatus::PAID->value)->count())->toBe(0)
+        ->and($contract->transactions()->count())->toBe(0);
 });
 
 it('rejects a cascade payment when the contract is already fully settled', function () {

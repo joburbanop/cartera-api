@@ -21,7 +21,7 @@ class AuthService
      */
     public function login(LoginDTO $dto): array
     {
-        $user = User::where('email', $dto->email)->first();
+        $user = User::findByEmail($dto->email);
 
         if (! $user || ! Hash::check($dto->password, $user->password)) {
             throw ValidationException::withMessages([

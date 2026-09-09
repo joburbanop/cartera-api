@@ -8,6 +8,7 @@ use App\DTOs\CreateUserDTO;
 use App\DTOs\UpdateUserDTO;
 use App\Enums\RoleName;
 use App\Models\User;
+use App\Support\ContractTabOrder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -145,7 +146,7 @@ class UserService
     }
 
     /**
-     * @return array{id: int, name: string, email: string, roles: list<string>, must_change_password: bool, password_changed_at: string|null}
+     * @return array{id: int, name: string, email: string, roles: list<string>, must_change_password: bool, password_changed_at: string|null, ui_preferences: array{contractTabs: list<string>}}
      */
     public function presentUser(User $user): array
     {
@@ -156,6 +157,37 @@ class UserService
             'roles' => $user->getRoleNames()->values()->all(),
             'must_change_password' => (bool) $user->must_change_password,
             'password_changed_at' => $user->password_changed_at?->toIso8601String(),
+            'ui_preferences' => $this->presentUiPreferences($user),
+        ];
+    }
+
+    /**
+     * @param  array{contractTabs?: mixed}  $payload
+     * @return array{contractTabs: list<string>}
+     */
+    public function updateUiPreferences(User $user, array $payload): array
+    {
+        $current = is_array($user->ui_preferences) ? $user->ui_preferences : [];
+
+        if (array_key_exists('contractTabs', $payload)) {
+            $current['contractTabs'] = ContractTabOrder::normalize($payload['contractTabs']);
+        }
+
+        $user->ui_preferences = $current;
+        $user->save();
+
+        return $this->presentUiPreferences($user->fresh() ?? $user);
+    }
+
+    /**
+     * @return array{contractTabs: list<string>}
+     */
+    private function presentUiPreferences(User $user): array
+    {
+        $raw = is_array($user->ui_preferences) ? $user->ui_preferences : [];
+
+        return [
+            'contractTabs' => ContractTabOrder::normalize($raw['contractTabs'] ?? null),
         ];
     }
 

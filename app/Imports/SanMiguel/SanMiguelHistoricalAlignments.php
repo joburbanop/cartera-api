@@ -7,20 +7,6 @@ final class SanMiguelHistoricalAlignments
     public const OFFICIAL_FILENAME = 'SAN_MIGUEL_AMORTIZACION_Y_PAGOS.xlsx';
 
     /**
-     * Recibos que no aparecen en la tabla izquierda; se aplican como extra en la cuota #1.
-     *
-     * @var array<string, string>
-     */
-    public const ORPHAN_EXTRAS_ON_FIRST_INSTALLMENT = [
-        '17' => '751000.00',
-        '18' => '1451000.00',
-        '34' => '250000.00',
-        '37' => '7106.00',
-        '38' => '7106.00',
-        '42' => '250000.00',
-    ];
-
-    /**
      * Cascada "mismo día del mes" desde la cuota #1, conservando su fecha actual.
      *
      * @var list<string>

@@ -88,10 +88,16 @@ class ImportSanMiguelCommand extends Command
         if (! empty($report['project_missing'])) {
             $this->warn('El proyecto San Miguel no está en la base. En modo real se crearía "Proyecto San Miguel".');
         }
-        $this->line('Pestañas LOTE: '.$report['sheets']);
+        $this->line('Lotes detectados: '.$report['sheets']);
         $this->line('Cuota variable: '.$report['variable']);
         $this->line('Lotes especiales: '.$report['especial']);
-        $this->line('Pagos en el Excel: '.$report['payments']);
+        $this->line('Hojas de vida: '.$report['life_sheets'].' en '.count($report['life_sheet_files']).' archivo(s)');
+        foreach ($report['life_sheet_files'] as $file) {
+            $this->line('  · '.$file);
+        }
+        $this->line('Pagos importados: '.$report['payments']);
+        $this->line('  desde hoja de vida: '.$report['lots_from_life_sheet'].' lote(s)');
+        $this->line('  desde libro de amortización: '.$report['lots_from_workbook'].' lote(s)');
         $this->line('Clientes a crear: '.$report['customers_would_create']);
         $this->line('Clientes a reutilizar: '.$report['customers_would_reuse']);
         $this->line('Lotes sin observaciones de datos: '.$report['lots_ok']);
@@ -167,11 +173,9 @@ class ImportSanMiguelCommand extends Command
         if (is_array($historical)) {
             $this->newLine();
             if (! empty($historical['skipped'])) {
-                $this->line('Fases 2-4: omitidas ('.($historical['reason'] ?? 'n/a').')');
+                $this->line('Fase 2 (vencimientos): omitida ('.($historical['reason'] ?? 'n/a').')');
             } else {
-                $this->info('Fase 2 overlay: '.count($historical['overlay_lots'] ?? []).' lotes');
-                $this->info('Fase 3 abonos huérfanos: '.count($historical['orphan_extras'] ?? []).' lotes');
-                $this->info('Fase 4 vencimientos: '.count($historical['due_dates'] ?? []).' lotes');
+                $this->info('Fase 2 vencimientos: '.count($historical['due_dates'] ?? []).' lotes');
             }
         }
 

@@ -20,7 +20,7 @@ class CreateUserCommand extends Command
     public function handle(UserService $userService): int
     {
         $name = trim((string) $this->argument('name'));
-        $email = strtolower(trim((string) $this->argument('email')));
+        $email = User::normalizeEmail(trim((string) $this->argument('email'))) ?? '';
         $role = trim((string) $this->argument('role'));
 
         if ($name === '' || $email === '') {
@@ -47,7 +47,7 @@ class CreateUserCommand extends Command
             return self::FAILURE;
         }
 
-        if (User::query()->where('email', $email)->exists()) {
+        if (User::emailIsTaken($email)) {
             $this->error("Ya existe un usuario con el correo {$email}.");
 
             return self::FAILURE;

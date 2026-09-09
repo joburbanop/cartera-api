@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Models\Transaction;
 use App\Observers\TransactionObserver;
 use App\Services\Collection\CascadeCollectionService;
+use App\Services\Collection\PaymentPromiseAllocationService;
+use App\Services\Collection\TransactionAllocationRecorder;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
@@ -26,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
             return new CascadeCollectionService(
                 $app->make(ExtraordinaryPaymentService::class),
                 $app->make(InstallmentPaymentAllocator::class),
+                $app->make(TransactionAllocationRecorder::class),
+                $app->make(PaymentPromiseAllocationService::class),
             );
         });
     }

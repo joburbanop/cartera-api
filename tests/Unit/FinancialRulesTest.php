@@ -25,3 +25,10 @@ it('clasifica residual, excedente absorbible y polvo de imputación', function (
         ->and(FinancialRules::isImputationDust('1.00'))->toBeFalse()
         ->and(FinancialRules::isImputationDust('0.00'))->toBeFalse();
 });
+
+it('fuerza tasa 0 cuando el plazo es de 12 meses o menos', function () {
+    expect(FinancialRules::effectiveInterestRate(6, 1.00))->toBe(0.0)
+        ->and(FinancialRules::effectiveInterestRate(12, 1.25))->toBe(0.0)
+        ->and(FinancialRules::effectiveInterestRate(13, 1.00))->toBe(1.0)
+        ->and(FinancialRules::effectiveInterestRate(60, 1.00, true))->toBe(0.0);
+});

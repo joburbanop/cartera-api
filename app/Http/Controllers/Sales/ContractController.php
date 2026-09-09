@@ -85,7 +85,7 @@ class ContractController extends Controller
             'customer',
             'customers',
             'lot.project.bankAccounts',
-            'transactions',
+            'transactions.allocations',
         ]);
 
         return $this->successResponse(
