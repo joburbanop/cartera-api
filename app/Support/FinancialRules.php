@@ -49,4 +49,16 @@ final class FinancialRules
         return bccomp($amount, '0.00', 2) > 0
             && bccomp($amount, self::IMPUTATION_DUST, 2) < 0;
     }
+
+    /**
+     * Plazo ≤ 12 meses (o lote especial) no genera interés: la cuota es capital/meses.
+     */
+    public static function effectiveInterestRate(int $termMonths, float|int|string $requestedRate, bool $isSpecialLot = false): float
+    {
+        if ($isSpecialLot || $termMonths <= 12) {
+            return 0.0;
+        }
+
+        return (float) $requestedRate;
+    }
 }

@@ -3,6 +3,7 @@
 namespace App\DTOs;
 
 use App\Http\Requests\StoreContractRequest;
+use App\Support\FinancialRules;
 
 class CreateContractDTO
 {
@@ -36,7 +37,11 @@ class CreateContractDTO
             ? $salePrice
             : $request->validated('down_payment_pactada');
         $termMonths = $isSpecialLot ? 0 : (int) $request->validated('term_months');
-        $interestRate = $isSpecialLot ? 0.0 : ($request->validated('interest_rate') ?? 1.00);
+        $interestRate = FinancialRules::effectiveInterestRate(
+            $termMonths,
+            $isSpecialLot ? 0.0 : ($request->validated('interest_rate') ?? 1.00),
+            $isSpecialLot,
+        );
         $firstInstallmentDate = $request->validated('first_installment_date')
             ?? $request->validated('regular_payment_start_date')
             ?? $startDate;

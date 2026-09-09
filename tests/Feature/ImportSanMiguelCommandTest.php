@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Enums\LotStatus;
 use App\Enums\PaymentMethod;
@@ -117,7 +118,7 @@ it('importa un lote variable y uno especial usando los servicios reales', functi
     expect($variable->is_special_lot)->toBeFalse()
         ->and((float) $variable->sale_price)->toBe(100000.0)
         ->and((float) $variable->down_payment_pactada)->toBe(20000.0)
-        ->and((float) $variable->interest_rate)->toBe(1.0)
+        ->and((float) $variable->interest_rate)->toBe(0.0)
         ->and($variable->start_date->toDateString())->toBe('2025-01-15')
         ->and($variable->first_installment_date->toDateString())->toBe('2025-02-15')
         ->and($variable->customers)->toHaveCount(1)
@@ -138,6 +139,54 @@ it('importa un lote variable y uno especial usando los servicios reales', functi
         ->and($special->transactions)->toHaveCount(1)
         ->and($special->transactions->first()->notes)->toContain('Primer abono')
         ->and($special->customers->first()->name)->toBe('Hameth Smith');
+
+    unlink($path);
+});
+
+it('importa un pago regular mayor que la cuota aunque el Excel no traiga acción', function () {
+    $path = sys_get_temp_dir().'/san-miguel-surplus-'.uniqid().'.xlsx';
+    $spreadsheet = new Spreadsheet;
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('LOTE 8');
+    $sheet->setCellValue('C1', 'Modalidad');
+    $sheet->setCellValue('A5', 100000);
+    $sheet->setCellValue('D2', 20000);
+    $sheet->setCellValue('D4', 0.01);
+    $sheet->setCellValue('D5', 12);
+    $sheet->setCellValue('C7', 'CLIENTE:');
+    $sheet->setCellValue('D7', 'ANA EXISTENTE');
+    $sheet->setCellValue('C8', 'CEDULA:');
+    $sheet->setCellValue('D8', '900900900');
+    $sheet->setCellValue('C9', 'Nper');
+    $sheet->setCellValue('C11', '15/02/2025');
+    $sheet->fromArray([
+        'FECHA', 'CONCEPTO', 'RECIBO #', 'EFECTIVO', 'BANCOLOMBIA', 'OCCIDENTE 6391', 'VALOR SIN CUENTA', 'TOTAL PAGO', 'APLICA A CUOTAS', 'SALDO', 'OBSERVACIÓN',
+    ], null, 'L9');
+    $sheet->setCellValue('L11', '10/01/2025');
+    $sheet->setCellValue('M11', 'CUOTA INICIAL');
+    $sheet->setCellValue('O11', 20000);
+    $sheet->setCellValue('S11', 20000);
+    // Plazo 12 → tasa 0, PMT = 80.000/12 ≈ 6.666,67. Este pago la supera
+    // y el concepto no es ABONO EXTRA: sin default el import fallaría.
+    $sheet->setCellValue('L12', '10/02/2025');
+    $sheet->setCellValue('M12', 'CUOTA 1');
+    $sheet->setCellValue('O12', 8000);
+    $sheet->setCellValue('S12', 8000);
+    (new Xlsx($spreadsheet))->save($path);
+
+    $this->artisan('import:san-miguel', [
+        'archivo' => $path,
+        '--solo-lote' => '8',
+    ])->assertSuccessful();
+
+    $contract = Contract::query()->where('contract_number', 'SM-LOTE-8')->firstOrFail();
+    $cuota = $contract->transactions()
+        ->where('transaction_type', TransactionType::REGULAR_PAYMENT)
+        ->firstOrFail();
+
+    expect((float) $cuota->amount)->toBe(8000.0)
+        ->and($contract->amortizationInstallments()->where('installment_number', 1)->first()->status)
+        ->toBe(AmortizationStatus::PAID);
 
     unlink($path);
 });

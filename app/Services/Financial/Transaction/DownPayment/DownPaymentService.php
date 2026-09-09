@@ -11,7 +11,9 @@ use App\Models\Contract;
 use App\Models\Lot;
 use App\Models\Receipt;
 use App\Models\Transaction;
+use App\Services\Collection\TransactionAllocationRecorder;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
 use App\Support\SafeUploadedFileName;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,10 @@ use Illuminate\Validation\ValidationException;
 
 class DownPaymentService
 {
+    public function __construct(
+        private readonly TransactionAllocationRecorder $allocationRecorder,
+    ) {}
+
     public function registerDownPayment(CreateTransactionDTO $dto): Transaction
     {
         if ($dto->transactionType !== TransactionType::DOWN_PAYMENT) {
@@ -29,14 +35,7 @@ class DownPaymentService
 
         return DB::transaction(function () use ($dto) {
             $contract = Contract::findOrFail($dto->contractId);
-            $totalPaid = $contract->transactions()
-                ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-                ->sum('amount');
-            $pendingBalance = bcsub(
-                (string) $contract->down_payment_pactada,
-                (string) $totalPaid,
-                2
-            );
+            $pendingBalance = DownPaymentLedger::pending($contract);
 
             if ($this->residualIsWithinCompletionTolerance($pendingBalance)) {
                 throw ValidationException::withMessages([
@@ -69,6 +68,16 @@ class DownPaymentService
                     'file_type' => $dto->receipt->getClientMimeType(),
                 ]);
             }
+
+            $initial = $contract->amortizationInstallments()
+                ->where('installment_number', 0)
+                ->first();
+            $this->allocationRecorder->recordDownPayment(
+                $transaction,
+                $initial,
+                (string) $dto->amount,
+                (string) $dto->amount,
+            );
 
             $this->updateInitialInstallment($contract, $dto);
             $this->activateContractWhenDownPaymentIsComplete($contract);
@@ -177,14 +186,7 @@ class DownPaymentService
 
     private function downPaymentResidual(Contract $contract): string
     {
-        $totalPaid = $contract->transactions()
-            ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-            ->sum('amount');
-
-        return max(
-            '0.00',
-            bcsub((string) $contract->down_payment_pactada, (string) $totalPaid, 2)
-        );
+        return DownPaymentLedger::pending($contract);
     }
 
     private function residualIsWithinCompletionTolerance(string $residual): bool

@@ -14,7 +14,7 @@ class LoginDTO
     public static function fromRequest(LoginRequest $request): self
     {
         return new self(
-            email: $request->validated('email'),
+            email: (string) $request->validated('email'),
             password: $request->validated('password')
         );
     }

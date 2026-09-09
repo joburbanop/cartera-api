@@ -10,6 +10,7 @@ use App\Enums\LotType;
 use App\Enums\TransactionType;
 use App\Imports\SanMiguel\SanMiguelCustomSchedules;
 use App\Imports\SanMiguel\SanMiguelHistoricalAlignments;
+use App\Imports\SanMiguel\SanMiguelLifeSheetParser;
 use App\Imports\SanMiguel\SanMiguelParsedClient;
 use App\Imports\SanMiguel\SanMiguelParsedLot;
 use App\Imports\SanMiguel\SanMiguelParsedPayment;
@@ -23,6 +24,7 @@ use App\Models\User;
 use App\Services\Collection\CascadeCollectionService;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\Sales\ContractService;
+use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +35,7 @@ class SanMiguelImportService
 {
     public function __construct(
         private readonly SanMiguelWorkbookParser $parser,
+        private readonly SanMiguelLifeSheetParser $lifeSheetParser,
         private readonly ContractService $contractService,
         private readonly DownPaymentService $downPaymentService,
         private readonly CascadeCollectionService $cascadeCollectionService,
@@ -50,7 +53,12 @@ class SanMiguelImportService
             $freshResult = $this->wipeService->run();
         }
 
-        $lots = $this->parser->parse($path);
+        // Las hojas de vida viven junto al libro de amortización, un archivo por
+        // rango de diez lotes. Son la fuente de los pagos reales.
+        $lifeSheetFiles = $this->lifeSheetParser->discover(dirname($path));
+        $lifeSheets = $this->lifeSheetParser->parse($lifeSheetFiles);
+
+        $lots = $this->parser->parse($path, $lifeSheets);
         if ($soloLote !== null && $soloLote !== '') {
             $lots = array_values(array_filter(
                 $lots,
@@ -80,6 +88,10 @@ class SanMiguelImportService
             'fresh' => $freshResult,
             'historical' => null,
             'official_workbook' => SanMiguelHistoricalAlignments::isOfficialWorkbook($path),
+            'life_sheet_files' => array_map('basename', $lifeSheetFiles),
+            'life_sheets' => count($lifeSheets),
+            'lots_from_life_sheet' => 0,
+            'lots_from_workbook' => 0,
         ];
 
         $plannedCustomers = [];
@@ -91,6 +103,12 @@ class SanMiguelImportService
                 $stats['variable']++;
             }
             $stats['payments'] += count($lot->payments);
+
+            if ($lot->lifeSheet !== null) {
+                $stats['lots_from_life_sheet']++;
+            } else {
+                $stats['lots_from_workbook']++;
+            }
 
             $customerPlan = [];
             foreach ($lot->clients as $client) {
@@ -110,6 +128,12 @@ class SanMiguelImportService
                 : null;
 
             $issues = $lot->issues;
+            if ($lifeSheets !== [] && $lot->lifeSheet === null) {
+                $issues[] = sprintf(
+                    'El lote %s no tiene hoja de vida; sus pagos se leyeron del libro de amortización.',
+                    $lot->lotNumber,
+                );
+            }
             if ($project === null) {
                 $issues[] = 'No existe un proyecto cuyo nombre contenga "San Miguel".';
             }
@@ -147,6 +171,7 @@ class SanMiguelImportService
                 'term_months' => $lot->termMonths,
                 'clients' => $customerPlan,
                 'payments' => count($lot->payments),
+                'payments_source' => $lot->paymentsSource(),
                 'sum_payments' => $lot->sumPayments,
                 'last_excel_saldo' => $lot->lastExcelSaldo,
                 'expected_saldo' => $lot->expectedSaldo,
@@ -160,8 +185,8 @@ class SanMiguelImportService
             $stats['historical'] = [
                 'skipped' => true,
                 'reason' => $stats['official_workbook']
-                    ? 'dry-run: las fases 2-4 no se ejecutan'
-                    : 'libro no oficial: las fases 2-4 no se ejecutan',
+                    ? 'dry-run: la fase 2 no se ejecuta'
+                    : 'libro no oficial: la fase 2 no se ejecuta',
             ];
 
             return $stats;
@@ -198,12 +223,12 @@ class SanMiguelImportService
         } elseif (SanMiguelHistoricalAlignments::isOfficialWorkbook($path)) {
             $stats['historical'] = [
                 'skipped' => true,
-                'reason' => 'hay lotes fallidos en la fase 1; no se corren las fases 2-4',
+                'reason' => 'hay lotes fallidos en la fase 1; no se corre la fase 2',
             ];
         } else {
             $stats['historical'] = [
                 'skipped' => true,
-                'reason' => 'libro no oficial: las fases 2-4 no se ejecutan',
+                'reason' => 'libro no oficial: la fase 2 no se ejecuta',
             ];
         }
 
@@ -306,10 +331,7 @@ class SanMiguelImportService
     private function applyDownPayment(Contract $contract, SanMiguelParsedPayment $payment, ?string $notes): void
     {
         $contract->refresh();
-        $totalPaid = $contract->transactions()
-            ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-            ->sum('amount');
-        $pending = bcsub((string) $contract->down_payment_pactada, (string) $totalPaid, 2);
+        $pending = DownPaymentLedger::pending($contract);
 
         if (FinancialRules::residualIsWithinCompletionTolerance($pending)) {
             $this->applyCascadePayment($contract, $payment, $payment->amount, $notes);
@@ -345,7 +367,9 @@ class SanMiguelImportService
             $this->cascadeCollectionService->process(
                 $contract->id,
                 $amount,
-                $payment->collectionOption,
+                // El Excel solo marca reducir_plazo en ABONO EXTRA. El resto
+                // venía sin acción: el FIFO de siempre, ahora explícito.
+                $payment->collectionOption ?? 'adelantar_cuotas',
                 $payment->date,
                 [],
                 null,

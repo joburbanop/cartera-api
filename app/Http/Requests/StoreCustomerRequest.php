@@ -20,9 +20,25 @@ class StoreCustomerRequest extends FormRequest
             'document_number' => 'required|string|max:50|unique:customers,document_number',
             'name' => 'required|string|max:150',
             'phone' => 'required|string|max:50', // Obligatorio para cobranza
-            'email' => 'nullable|email|max:150|unique:customers,email',
-            'address' => 'nullable|string|max:255',
-            'city' => 'nullable|string|max:100',
+            // Correo, dirección y ciudad son obligatorios al dar de alta: sin
+            // ellos no hay forma de notificar ni de visitar al cliente. En la
+            // edición siguen siendo opcionales, para no bloquear las fichas
+            // históricas que se crearon sin esos datos.
+            'email' => 'required|email|max:150|unique:customers,email',
+            'address' => 'required|string|max:255',
+            'city' => 'required|string|max:100',
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'El correo es obligatorio para poder notificar al cliente.',
+            'address.required' => 'La dirección es obligatoria.',
+            'city.required' => 'La ciudad es obligatoria.',
         ];
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
+use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
@@ -122,13 +123,7 @@ class PreventaThenCascadeCollectionService
 
     private function pendingInitial(Contract $contract): string
     {
-        $totalPaid = $contract->transactions()
-            ->where('transaction_type', TransactionType::DOWN_PAYMENT)
-            ->sum('amount');
-
-        $pending = bcsub((string) $contract->down_payment_pactada, (string) $totalPaid, 2);
-
-        return bccomp($pending, '0.00', 2) > 0 ? $this->money($pending) : '0.00';
+        return DownPaymentLedger::pending($contract);
     }
 
     private function money(string $value): string

@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Enums\RoleName;
+use App\Http\Requests\Concerns\NormalizesEmailInput;
+use App\Rules\UniqueUserEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateUserRequest extends FormRequest
 {
+    use NormalizesEmailInput;
+
     public function authorize(): bool
     {
         return true;
@@ -30,7 +34,7 @@ class UpdateUserRequest extends FormRequest
                 'string',
                 'email',
                 'max:150',
-                Rule::unique('users', 'email')->ignore($userId),
+                new UniqueUserEmail($userId !== null ? (int) $userId : null),
             ],
             'role' => ['sometimes', 'required', 'string', Rule::in(RoleName::values())],
             'password' => 'sometimes|nullable|string|min:8',

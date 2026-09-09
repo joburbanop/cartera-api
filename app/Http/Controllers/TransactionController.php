@@ -55,7 +55,7 @@ class TransactionController extends Controller
     public function indexByContract(Request $request, int $contractId): JsonResponse
     {
         $paginator = Transaction::query()
-            ->with('receipt')
+            ->with(['receipt', 'allocations.installment'])
             ->where('contract_id', $contractId)
             ->orderByDesc('created_at')
             ->paginate($this->perPage($request));
@@ -71,6 +71,7 @@ class TransactionController extends Controller
             'receipt' => $transaction->receipt
                 ? route('transactions.receipt', $transaction->id)
                 : null,
+            'allocations' => $this->presentAllocations($transaction),
         ]);
 
         return $this->successResponse($paginator, 'Transacciones del contrato obtenidas exitosamente.');
@@ -141,6 +142,30 @@ class TransactionController extends Controller
                 ? route('transactions.receipt', $transaction->id)
                 : null,
         ];
+    }
+
+    /**
+     * Reparto de un pago que cubrió cuota inicial y cuota regular a la vez.
+     * El total sigue siendo `amount`: esto solo cuenta a dónde fue cada peso.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function presentAllocations(Transaction $transaction): array
+    {
+        return $transaction->allocations
+            ->sortBy('id')
+            ->map(fn ($allocation) => [
+                'target' => $allocation->target->value,
+                'target_label' => $allocation->target->label(),
+                'installment_number' => $allocation->installment
+                    ? (int) $allocation->installment->installment_number
+                    : null,
+                'amount' => $allocation->amount,
+                'principal' => $allocation->principal,
+                'interest' => $allocation->interest,
+            ])
+            ->values()
+            ->all();
     }
 
     private function perPage(Request $request): int

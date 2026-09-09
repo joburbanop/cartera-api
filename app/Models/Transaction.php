@@ -6,6 +6,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Transaction extends Model
@@ -37,5 +38,18 @@ class Transaction extends Model
     public function receipt(): HasOne
     {
         return $this->hasOne(Receipt::class);
+    }
+
+    /**
+     * Reparto interno del pago hacia amortización (inicial, cuota, capital).
+     */
+    public function allocations(): HasMany
+    {
+        return $this->hasMany(TransactionAllocation::class);
+    }
+
+    public function promiseAllocations(): HasMany
+    {
+        return $this->hasMany(PaymentPromiseAllocation::class);
     }
 }

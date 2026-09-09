@@ -255,6 +255,43 @@ it('combina filtros con AND y expone total para el contador', function () {
         ->and(lotIdsFromIndex($payload))->toBe([$match->id]);
 });
 
+it('ordena los lotes numéricos primero y el resto alfabéticamente', function () {
+    foreach (['10', 'L-04', '2', 'PRUEBA-FECHAS-001', '1'] as $number) {
+        Lot::factory()->create([
+            'project_id' => $this->projectA->id,
+            'number' => $number,
+        ]);
+    }
+
+    $payload = $this->getJson('/api/lots?project_id='.$this->projectA->id.'&per_page=50')
+        ->assertOk()
+        ->json();
+
+    $numbers = collect($payload['data']['data'] ?? $payload['data'] ?? [])
+        ->pluck('number')
+        ->all();
+
+    expect($numbers)->toBe(['1', '2', '10', 'L-04', 'PRUEBA-FECHAS-001']);
+});
+
+it('ordena también los lotes archivados por número', function () {
+    foreach (['10', '2', 'L-04'] as $number) {
+        $lot = Lot::factory()->create([
+            'project_id' => $this->projectA->id,
+            'number' => $number,
+        ]);
+        $lot->delete();
+    }
+
+    $payload = $this->getJson('/api/lots/archived?project_id='.$this->projectA->id)
+        ->assertOk()
+        ->json();
+
+    $numbers = collect($payload['data'] ?? [])->pluck('number')->all();
+
+    expect($numbers)->toBe(['2', '10', 'L-04']);
+});
+
 it('rechaza reservado como estado de alta', function () {
     $this->postJson('/api/lots', [
         'project_id' => $this->projectA->id,

@@ -56,8 +56,7 @@ class LotService
                         ->select('id', 'lot_id')
                         ->orderByDesc('id');
                 }
-            ])
-            ->latest();
+            ]);
 
         $projectId = isset($filters['project_id'])
             ? $filters['project_id']
@@ -146,7 +145,40 @@ class LotService
             });
         }
 
+        $this->applyLotNumberOrdering($query);
+
         return $query->paginate($perPage);
+    }
+
+    private function applyLotNumberOrdering(Builder $query): void
+    {
+        $driver = $query->getConnection()->getDriverName();
+
+        if ($driver === 'pgsql') {
+            $query
+                ->orderByRaw("CASE WHEN number ~ '^[0-9]+$' THEN 0 ELSE 1 END")
+                ->orderByRaw("CASE WHEN number ~ '^[0-9]+$' THEN CAST(number AS INTEGER) END")
+                ->orderBy('number')
+                ->orderBy('id');
+
+            return;
+        }
+
+        if ($driver === 'sqlite') {
+            $query
+                ->orderByRaw("CASE WHEN number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*' THEN 0 ELSE 1 END")
+                ->orderByRaw("CASE WHEN number GLOB '[0-9]*' AND number NOT GLOB '*[^0-9]*' THEN CAST(number AS INTEGER) END")
+                ->orderBy('number')
+                ->orderBy('id');
+
+            return;
+        }
+
+        $query
+            ->orderByRaw("CASE WHEN number REGEXP '^[0-9]+$' THEN 0 ELSE 1 END")
+            ->orderByRaw("CASE WHEN number REGEXP '^[0-9]+$' THEN CAST(number AS UNSIGNED) END")
+            ->orderBy('number')
+            ->orderBy('id');
     }
 
     private function overdueInstallments(Builder $query): Builder
@@ -230,12 +262,13 @@ class LotService
     public function getArchivedLots(?int $projectId = null)
     {
         $query = Lot::onlyTrashed()
-            ->with('project')
-            ->latest('deleted_at');
+            ->with('project');
 
         if ($projectId) {
             $query->where('project_id', $projectId);
         }
+
+        $this->applyLotNumberOrdering($query);
 
         return $query->get();
     }

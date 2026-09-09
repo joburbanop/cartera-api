@@ -25,9 +25,15 @@ class TermReductionService extends AbstractExtraordinaryPaymentService
         $installmentValue = $this->money($installment->installment_value ?? '0.00');
         $principalValue = $this->maxMoney('0.00', bcsub(bcadd($installmentValue, $effectiveSurplus, 2), $interestValue, 2));
 
+        $principalPaid = bcadd($this->money($installment->principal_paid ?? '0.00'), $effectiveSurplus, 2);
+        if (bccomp($principalPaid, $principalValue, 2) < 0) {
+            $principalPaid = $principalValue;
+        }
+
         $installment->update([
             'extra_payment' => $effectiveSurplus,
             'principal_value' => $principalValue,
+            'principal_paid' => $principalPaid,
             'remaining_balance' => $newCapital,
             'projected_balance' => $newCapital,
             'status' => AmortizationStatus::PAID->value,

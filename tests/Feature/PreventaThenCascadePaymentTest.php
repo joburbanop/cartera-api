@@ -4,6 +4,7 @@ use App\Enums\AmortizationStatus;
 use App\Enums\LotStatus;
 use App\Enums\RoleName;
 use App\Enums\TransactionType;
+use App\Services\Collection\CascadeCollectionService;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
@@ -144,6 +145,29 @@ it('en preventa con inicial ya saldada cobra solo regulares', function () {
     expect($contract->transactions()->where('transaction_type', TransactionType::REGULAR_PAYMENT)->count())->toBe(1)
         ->and($contract->transactions()->where('transaction_type', TransactionType::DOWN_PAYMENT)->count())->toBe(1)
         ->and($contract->amortizationInstallments()->where('installment_number', 1)->first()->quota_debt)->toBe('0.00');
+});
+
+it('rechaza el cobro HTTP si hay excedente y no viene destino', function () {
+    $contract = preventaCascadeContract(LotStatus::VENDIDO->value, '1000.00', '0.00');
+    $contract->amortizationInstallments()
+        ->where('installment_number', '>', 1)
+        ->update([
+            'status' => AmortizationStatus::PENDING->value,
+            'due_date' => now()->addMonth()->toDateString(),
+        ]);
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+
+    $this->postJson('/api/collections/cascade', [
+        'contract_id' => $contract->id,
+        'amount' => 1500,
+        'transaction_date' => now()->toDateString(),
+        'selected_installments' => [$cuota1->id],
+    ])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['payment_option'])
+        ->assertJsonPath('errors.payment_option.0', CascadeCollectionService::SURPLUS_ACTION_REQUIRED);
+
+    expect($contract->fresh()->transactions()->count())->toBe(0);
 });
 
 it('en lote que no es preventa no desvia el pago a la inicial', function () {

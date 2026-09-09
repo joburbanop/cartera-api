@@ -18,7 +18,7 @@ class UnlockPasswordCommand extends Command
 
     public function handle(UserService $userService): int
     {
-        $email = strtolower(trim((string) $this->option('email')));
+        $email = User::normalizeEmail((string) $this->option('email')) ?? '';
         $all = (bool) $this->option('all');
 
         if ($all === ($email !== '')) {
@@ -41,7 +41,7 @@ class UnlockPasswordCommand extends Command
             return self::SUCCESS;
         }
 
-        $user = User::query()->where('email', $email)->first();
+        $user = User::findByEmail($email);
 
         if (! $user) {
             $this->error("No existe un usuario con el correo {$email}.");

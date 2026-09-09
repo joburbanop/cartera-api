@@ -51,6 +51,8 @@ class StoreCascadePaymentRequest extends FormRequest
         return [
             'selected_installments.*.exists' => 'No puedes incluir la Cuota Inicial en un pago de Cuotas Ordinarias.',
             'installment_numbers.*.exists' => 'No puedes incluir la Cuota Inicial en un pago de Cuotas Ordinarias.',
+            'payment_option.required' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.in' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
         ];
     }
 }

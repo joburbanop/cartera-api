@@ -126,6 +126,8 @@ it('loguea administrador y confirma escrituras de negocio y bloqueo de usuarios'
         'name' => 'Cliente Flujo',
         'phone' => '3001234567',
         'email' => 'cliente.flujo@example.com',
+        'address' => 'Carrera 5 # 10-20',
+        'city' => 'Cali',
     ], $headers)->assertCreated();
 
     $this->postJson('/api/projects', [

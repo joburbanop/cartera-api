@@ -112,11 +112,23 @@ it('contrato: project_id contra postgres', function () {
 });
 
 it('contrato: status contra postgres', function () {
+    $expected = (int) DB::table('contracts')
+        ->whereNull('deleted_at')
+        ->where('status', 'activo')
+        ->count();
+
     $page = app(ContractService::class)->getAllContracts(100, null, [
         'status' => 'activo',
     ]);
 
-    expect($page->total())->toBe(45);
+    // El número absoluto cambia cuando se activa un contrato desde la UI.
+    // Lo que importa es que el filtro coincida con lo que hay hoy en la base.
+    expect($page->total())->toBe($expected)
+        ->and($expected)->toBeGreaterThan(0);
+
+    foreach ($page as $contract) {
+        expect($contract->status->value)->toBe('activo');
+    }
 });
 
 it('contrato: cartera mora y al_dia contra postgres', function () {
@@ -148,8 +160,19 @@ it('lote: number contra postgres', function () {
 });
 
 it('lote: status contra postgres', function () {
+    $expected = (int) DB::table('lots')
+        ->whereNull('deleted_at')
+        ->where('status', 'vendido')
+        ->count();
+
     $page = app(LotService::class)->getAllLots(null, 100, ['status' => 'vendido']);
-    expect($page->total())->toBe(45);
+
+    expect($page->total())->toBe($expected)
+        ->and($expected)->toBeGreaterThan(0);
+
+    foreach ($page as $lot) {
+        expect($lot->status->value)->toBe('vendido');
+    }
 });
 
 it('lote: project_id contra postgres', function () {

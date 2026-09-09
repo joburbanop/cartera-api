@@ -11,9 +11,9 @@ class CreateCustomerDTO
         public readonly string $documentNumber,
         public readonly string $name,
         public readonly string $phone,
-        public readonly ?string $email,
-        public readonly ?string $address,
-        public readonly ?string $city
+        public readonly string $email,
+        public readonly string $address,
+        public readonly string $city
     ) {}
 
     public static function fromRequest(StoreCustomerRequest $request): self

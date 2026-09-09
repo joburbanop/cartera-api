@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Sales;
 use App\Http\Controllers\Controller;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Services\Collection\AllocationSourcePresenter;
 use App\Services\Financial\Amortization\AdjustInstallmentDueDatesService;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Services\Financial\LifeSheet\ContractLifeSheetService;
 use App\Traits\ApiResponse;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -23,6 +25,8 @@ class AmortizationController extends Controller
     public function __construct(
         protected AmortizationService $amortizationService,
         protected AdjustInstallmentDueDatesService $adjustInstallmentDueDatesService,
+        protected ContractLifeSheetService $lifeSheetService,
+        protected AllocationSourcePresenter $sourcePresenter,
     ) {}
 
     public function generate(Contract $contract): JsonResponse
@@ -40,6 +44,7 @@ class AmortizationController extends Controller
     {
         try {
             $plan = $contract->installments()->get();
+            $this->sourcePresenter->attachToInstallments($plan);
 
             return $this->successResponse($plan, 'Plan de amortización obtenido exitosamente.');
         } catch (\Exception $e) {
@@ -67,6 +72,8 @@ class AmortizationController extends Controller
         $lot = $contract->lot;
         $project = $lot?->project;
 
+        $lifeSheet = $this->lifeSheetService->build($contract);
+
         $pdf = Pdf::loadView('pdf.amortization', [
             'contract' => $contract,
             'customer' => $customer,
@@ -75,6 +82,7 @@ class AmortizationController extends Controller
             'plan' => $plan,
             'version' => null,
             'type' => $type,
+            'lifeSheetSummary' => $lifeSheet['summary'],
         ]);
 
         $label = $type === 'client' ? 'cliente' : 'interno';

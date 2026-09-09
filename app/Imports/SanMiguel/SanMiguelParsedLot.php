@@ -25,5 +25,12 @@ class SanMiguelParsedLot
         /** @var list<string> */
         public readonly array $issues,
         public readonly ?\Carbon\Carbon $firstNperDate = null,
+        /** Hoja de vida que alimentó los pagos, si el lote la tiene. */
+        public readonly ?SanMiguelLifeSheet $lifeSheet = null,
     ) {}
+
+    public function paymentsSource(): string
+    {
+        return $this->lifeSheet !== null ? 'hoja de vida' : 'libro de amortización';
+    }
 }

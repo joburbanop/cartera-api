@@ -21,7 +21,7 @@ it('clasifica cuota variable y lote especial y extrae titulares y pagos', functi
     $variable->setCellValue('D4', 0.01);
     $variable->getStyle('D4')->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_PERCENTAGE);
     $variable->setCellValue('C5', 'Plazo');
-    $variable->setCellValue('D5', 12);
+    $variable->setCellValue('D5', 24);
     $variable->setCellValue('C7', 'CLIENTE:');
     $variable->setCellValue('D7', 'ANA PEREZ - LUIS GOMEZ');
     $variable->setCellValue('C8', 'CEDULA:');
@@ -78,7 +78,7 @@ it('clasifica cuota variable y lote especial y extrae titulares y pagos', functi
         ->and($variableLot->salePrice)->toBe('100000.00')
         ->and($variableLot->downPaymentPactada)->toBe('20000.00')
         ->and($variableLot->interestRate)->toBe(1.0)
-        ->and($variableLot->termMonths)->toBe(12)
+        ->and($variableLot->termMonths)->toBe(24)
         ->and($variableLot->clients)->toHaveCount(2)
         ->and($variableLot->clients[0]->documentNumber)->toBe('11111111')
         ->and($variableLot->clients[1]->name)->toBe('LUIS GOMEZ')
@@ -167,4 +167,35 @@ it('marca inconsistencia en cuota variable solo si la suma de pagos supera el pr
 
     expect($lots[0]->saldoMatches)->toBeFalse()
         ->and($lots[0]->issues[0])->toContain('supera el precio de venta');
+});
+
+it('si D4 trae tasa y el plazo es de 6 meses, gana la regla de tasa 0', function () {
+    $path = sys_get_temp_dir().'/san-miguel-short-term-'.uniqid().'.xlsx';
+    $spreadsheet = new Spreadsheet;
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('LOTE 11');
+    $sheet->setCellValue('C1', 'Modalidad');
+    $sheet->setCellValue('A5', 138212000);
+    $sheet->setCellValue('D2', 13821200);
+    $sheet->setCellValue('D4', 0.01);
+    $sheet->getStyle('D4')->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_PERCENTAGE);
+    $sheet->setCellValue('D5', 6);
+    $sheet->setCellValue('C7', 'CLIENTE:');
+    $sheet->setCellValue('D7', 'CLIENTE CORTO');
+    $sheet->setCellValue('C8', 'CEDULA:');
+    $sheet->setCellValue('D8', '12312312');
+    $sheet->fromArray([
+        'FECHA', 'CONCEPTO', 'RECIBO #', 'EFECTIVO', 'BANCOLOMBIA', 'OCCIDENTE 6391', 'VALOR SIN CUENTA', 'TOTAL PAGO', 'APLICA A CUOTAS', 'SALDO', 'OBSERVACIÓN',
+    ], null, 'L9');
+    $sheet->setCellValue('L11', '15/01/2025');
+    $sheet->setCellValue('M11', 'CUOTA INICIAL');
+    $sheet->setCellValue('S11', 13821200);
+    $sheet->setCellValue('U11', 124390800);
+
+    (new Xlsx($spreadsheet))->save($path);
+    $lots = (new SanMiguelWorkbookParser)->parse($path);
+    unlink($path);
+
+    expect($lots[0]->termMonths)->toBe(6)
+        ->and($lots[0]->interestRate)->toBe(0.0);
 });

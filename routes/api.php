@@ -13,6 +13,7 @@ use App\Http\Controllers\Inventory\ProjectController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Sales\AmortizationController;
 use App\Http\Controllers\Sales\ContractController;
+use App\Http\Controllers\Sales\ContractLifeSheetController;
 use App\Http\Controllers\Sales\RefinanceContractController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Http\Request;
@@ -30,6 +31,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::put('/me/password', [AuthController::class, 'changePassword'])
+        ->middleware('throttle:writes');
+    Route::patch('/me/preferences', [AuthController::class, 'updatePreferences'])
         ->middleware('throttle:writes');
 });
 
@@ -102,6 +105,10 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
 
     Route::get('/contracts/{contract}/amortization', [AmortizationController::class, 'show'])
         ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/contracts/{contract}/life-sheet', [ContractLifeSheetController::class, 'show'])
+        ->middleware('permission:amortization.view|contracts.manage');
+    Route::get('/contracts/{contract}/life-sheet/download-pdf', [ContractLifeSheetController::class, 'downloadPdf'])
+        ->middleware('permission:amortization.view|contracts.manage');
     Route::get('/contracts/{contract}/download-pdf', [AmortizationController::class, 'downloadPdf'])
         ->middleware('permission:amortization.view|contracts.manage');
     Route::post('/contracts/{contract}/generate-amortization', [AmortizationController::class, 'generate'])
@@ -128,6 +135,8 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
         ->middleware(['permission:payments.register', 'throttle:writes']);
 
     Route::post('/collections/cascade', [CollectionController::class, 'store'])
+        ->middleware(['permission:payments.register|extraordinary-payments.apply', 'throttle:writes']);
+    Route::post('/collections/split', [CollectionController::class, 'storeSplit'])
         ->middleware(['permission:payments.register|extraordinary-payments.apply', 'throttle:writes']);
 
     Route::get('/customers', [CustomerController::class, 'index'])

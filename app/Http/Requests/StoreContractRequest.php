@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\Financial\Amortization\AmortizationCalculationService;
+use App\Support\FinancialRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -78,8 +79,11 @@ class StoreContractRequest extends FormRequest
 
                 $salePrice = (float) ($this->input('sale_price') ?? 0);
                 $downPayment = (float) ($this->input('down_payment_pactada') ?? 0);
-                $interestRate = (float) ($this->input('interest_rate') ?? 0);
                 $termMonths = (int) ($this->input('term_months') ?? 0);
+                $interestRate = FinancialRules::effectiveInterestRate(
+                    $termMonths,
+                    (float) ($this->input('interest_rate') ?? 0),
+                );
                 $customPromises = $this->input('promises', []);
 
                 $totalCustom = 0.0;
