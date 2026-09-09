@@ -86,10 +86,27 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     Route::post('/lots', [LotController::class, 'store'])
         ->middleware('permission:lots.manage');
 
+
     Route::get('/contracts', [ContractController::class, 'index'])
+    ->middleware('permission:contracts.view|contracts.manage');
+
+    Route::get('/contracts/archived', [ContractController::class, 'archived'])
         ->middleware('permission:contracts.view|contracts.manage');
+
     Route::get('/contracts/{contract}', [ContractController::class, 'show'])
         ->middleware('permission:contracts.view|contracts.manage');
+
+    Route::put('/contracts/{contract}', [ContractController::class, 'update'])
+        ->middleware('permission:contracts.manage');
+
+    Route::patch('/contracts/{contract}/archive', [ContractController::class, 'archive'])
+        ->middleware('permission:contracts.manage');
+
+    Route::patch('/contracts/{contract}/restore', [ContractController::class, 'restore'])
+    ->withoutMiddleware('bindings')
+    ->middleware('permission:contracts.manage');
+    Route::patch('/contracts/{contract}/activate', [ContractController::class, 'activate'])
+        ->middleware('permission:contracts.manage');
     Route::post('/contracts', [ContractController::class, 'store'])
         ->middleware(['permission:contracts.manage', 'throttle:writes']);
 

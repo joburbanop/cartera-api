@@ -144,4 +144,19 @@ class ContractPaymentPromiseService
             $next++;
         }
     }
+   public function clearCommercialPlan(int $contractId): void
+    {
+        $contract = Contract::query()->findOrFail($contractId);
+
+        DB::transaction(function () use ($contract) {
+            $contract->paymentPromises()
+                ->where(function ($query) {
+                    $query
+                        ->whereNull('description')
+                        ->orWhere('description', '!=', AcuerdoPagoService::DESCRIPTION);
+                })
+                ->delete();
+        });
+    }
+
 }

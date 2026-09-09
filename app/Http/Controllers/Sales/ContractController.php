@@ -11,6 +11,8 @@ use App\Services\Sales\ContractService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\DTOs\UpdateContractDTO;
+use App\Http\Requests\UpdateContractRequest;
 
 class ContractController extends Controller
 {
@@ -91,4 +93,43 @@ class ContractController extends Controller
             'Detalles del contrato obtenidos exitosamente.'
         );
     }
+
+    public function update(
+        UpdateContractRequest $request,
+        Contract $contract
+    ): JsonResponse {
+        $dto = UpdateContractDTO::fromRequest($request);
+
+        $contract = $this->contractService->updateContract(
+            $contract,
+            $dto
+        );
+
+        return $this->successResponse(
+            $contract,
+            'Contrato actualizado correctamente.'
+        );
+    }
+    public function archive(Contract $contract): JsonResponse
+    {
+        $contract = $this->contractService->archiveContract($contract);
+
+        return $this->successResponse(
+            $contract,
+            'Contrato archivado correctamente.'
+        );
+    }
+
+   public function restore(int $contract): JsonResponse
+{
+    $contract = Contract::withTrashed()->findOrFail($contract);
+
+    $contract = $this->contractService->restoreContract($contract);
+
+    return $this->successResponse(
+        $contract,
+        'Contrato restaurado correctamente.'
+    );
+}
+
 }

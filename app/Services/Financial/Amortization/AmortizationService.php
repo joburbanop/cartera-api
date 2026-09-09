@@ -61,4 +61,33 @@ class AmortizationService
             return $contract->amortizationInstallments()->orderBy('installment_number', 'asc')->get();
         });
     }
+
+    public function regenerateInitialProjection(Contract $contract): Collection
+{
+    return DB::transaction(function () use ($contract) {
+        $contract->amortizationInstallments()->delete();
+
+        $schedule = $this->amortizationCalculationService->buildSchedule($contract);
+
+        foreach ($schedule as $row) {
+            $contract->amortizationInstallments()->create([
+                'installment_number' => $row['installment_number'],
+                'due_date' => $row['due_date'],
+                'payment_date' => null,
+                'installment_value' => $row['installment_value'],
+                'extra_payment' => $row['extra_payment'],
+                'interest_value' => $row['interest_value'],
+                'principal_value' => $row['principal_value'],
+                'quota_debt' => $row['quota_debt'],
+                'remaining_balance' => $row['remaining_balance'],
+                'projected_balance' => $row['projected_balance'],
+                'status' => $row['status'],
+            ]);
+        }
+
+        return $contract->amortizationInstallments()
+            ->orderBy('installment_number', 'asc')
+            ->get();
+    });
+}
 }

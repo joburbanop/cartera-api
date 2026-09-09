@@ -217,4 +217,14 @@ class Contract extends Model
     {
         return Schema::hasTable('activity_log') && $this->spatieShouldLogEvent($eventName);
     }
+
+    public function resolveSoftDeletableRouteBinding($value, $field = null)
+    {
+        return $this->resolveRouteBindingQuery(
+            $this,
+            $value,
+            $field
+        )->withTrashed()->first();
+    }
+
 }
