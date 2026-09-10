@@ -2,9 +2,10 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\PaymentMethod;
+use App\Services\Collection\CascadeCollectionService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use App\Enums\PaymentMethod;
 
 class StoreCascadePaymentRequest extends FormRequest
 {
@@ -20,7 +21,7 @@ class StoreCascadePaymentRequest extends FormRequest
         return [
             'contract_id' => ['required', 'integer', 'exists:contracts,id'],
             'amount' => ['required', 'numeric', 'min:1'],
-            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas'],
+            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas,abono_capital'],
             'transaction_date' => ['nullable', 'date'],
             'payment_date' => ['nullable', 'date'],
             'selected_installments' => ['nullable', 'array'],
@@ -42,7 +43,8 @@ class StoreCascadePaymentRequest extends FormRequest
                     ),
             ],
             'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            'payment_method' => ['nullable', Rule::enum(PaymentMethod::class)],
+            'payment_method' => ['nullable', PaymentMethod::ruleForNewPayments()],
+            'receipt_number' => ['nullable', 'string', 'max:80'],
         ];
     }
 
@@ -51,8 +53,8 @@ class StoreCascadePaymentRequest extends FormRequest
         return [
             'selected_installments.*.exists' => 'No puedes incluir la Cuota Inicial en un pago de Cuotas Ordinarias.',
             'installment_numbers.*.exists' => 'No puedes incluir la Cuota Inicial en un pago de Cuotas Ordinarias.',
-            'payment_option.required' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
-            'payment_option.in' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.required' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.in' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
         ];
     }
 }

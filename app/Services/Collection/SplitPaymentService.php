@@ -12,6 +12,7 @@ use App\Models\Transaction;
 use App\Models\TransactionAllocation;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Support\DownPaymentLedger;
+use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
@@ -53,6 +54,7 @@ class SplitPaymentService
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
         ?string $paymentOption = null,
+        ?string $receiptNumber = null,
     ): array {
         return DB::transaction(function () use (
             $contractId,
@@ -64,6 +66,7 @@ class SplitPaymentService
             $paymentMethod,
             $notes,
             $paymentOption,
+            $receiptNumber,
         ) {
             $contract = Contract::query()->with('lot')->findOrFail($contractId);
             $initialPart = $this->money($toDownPayment);
@@ -74,13 +77,16 @@ class SplitPaymentService
 
             $this->assertPartsAreValid($contract, $initialPart, $regularPart);
 
+            $normalizedReceipt = ReceiptNumber::normalize($receiptNumber);
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
                 'transaction_type' => TransactionType::SPLIT_PAYMENT,
                 'amount' => $total,
                 'transaction_date' => $effectiveDate->toDateString(),
                 'payment_method' => $method,
-                'notes' => $notes,
+                'notes' => ReceiptNumber::mergeIntoNotes($notes, $normalizedReceipt),
+                'receipt_number' => $normalizedReceipt,
+                'payment_option' => $paymentOption ? strtolower(trim($paymentOption)) : null,
             ]);
 
             if ($receipt) {

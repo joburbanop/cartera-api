@@ -14,6 +14,7 @@ use App\Models\PaymentPromiseAllocation;
 use App\Models\Project;
 use App\Models\Transaction;
 use App\Models\TransactionAllocation;
+use App\Services\Collection\AllocationSourcePresenter;
 use App\Services\Collection\CascadeCollectionService;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\PaymentPromiseStatusService;
@@ -258,7 +259,7 @@ it('un cobro nuevo menor a dos cuotas vencidas deja sources en ambas y el extra 
         ->and($tx->allocations->where('target', AllocationTarget::CAPITAL)->count())->toBe(0);
 
     $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
-    app(\App\Services\Collection\AllocationSourcePresenter::class)->attachToInstallments($plan);
+    app(AllocationSourcePresenter::class)->attachToInstallments($plan);
 
     $sources1 = $plan->firstWhere('installment_number', 1)->sources;
     $sources2 = $plan->firstWhere('installment_number', 2)->sources;
@@ -270,8 +271,55 @@ it('un cobro nuevo menor a dos cuotas vencidas deja sources en ambas y el extra 
         ->and((float) $sources2[0]['amount'])->toBe(500.0)
         ->and($sources1[0]['also_applied_to'][0]['installment_number'])->toBe(2)
         ->and($sources1[0]['also_applied_to'][0]['amount'])->toBe('500.00')
-        ->and($sources2[0]['also_applied_to'][0]['installment_number'])->toBe(1)
-        ->and($sources2[0]['also_applied_to'][0]['amount'])->toBe('1000.00');
+        ->and($sources1[0]['came_from'])->toBe([])
+        ->and($sources2[0]['also_applied_to'])->toBe([])
+        ->and($sources2[0]['came_from'][0]['installment_number'])->toBe(1)
+        ->and($sources2[0]['came_from'][0]['amount'])->toBe('500.00');
+});
+
+it('un cobro que parte en una cuota posterior deja came_from en la que recibió el sobrante', function () {
+    $contract = allocationContract();
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+    $cuota2 = $contract->amortizationInstallments()->where('installment_number', 2)->firstOrFail();
+
+    $tx = Transaction::query()->create([
+        'contract_id' => $contract->id,
+        'transaction_type' => TransactionType::REGULAR_PAYMENT,
+        'amount' => '1067671.00',
+        'transaction_date' => '2026-03-10',
+        'payment_method' => PaymentMethod::CASH,
+        'notes' => 'Recibo #0999 | Concepto: CUOTA 2',
+    ]);
+
+    TransactionAllocation::query()->create([
+        'transaction_id' => $tx->id,
+        'amortization_installment_id' => $cuota2->id,
+        'target' => AllocationTarget::INSTALLMENT,
+        'amount' => '1000000.00',
+        'principal' => '800000.00',
+        'interest' => '200000.00',
+    ]);
+    TransactionAllocation::query()->create([
+        'transaction_id' => $tx->id,
+        'amortization_installment_id' => $cuota1->id,
+        'target' => AllocationTarget::INSTALLMENT,
+        'amount' => '67671.00',
+        'principal' => '67671.00',
+        'interest' => '0.00',
+    ]);
+
+    $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
+    app(AllocationSourcePresenter::class)->attachToInstallments($plan);
+
+    $sources1 = $plan->firstWhere('installment_number', 1)->sources;
+    $sources2 = $plan->firstWhere('installment_number', 2)->sources;
+
+    expect($sources2[0]['also_applied_to'][0]['installment_number'])->toBe(1)
+        ->and($sources2[0]['also_applied_to'][0]['amount'])->toBe('67671.00')
+        ->and($sources2[0]['came_from'])->toBe([])
+        ->and($sources1[0]['also_applied_to'])->toBe([])
+        ->and($sources1[0]['came_from'][0]['installment_number'])->toBe(2)
+        ->and($sources1[0]['came_from'][0]['amount'])->toBe('67671.00');
 });
 
 it('el extra a capital sale como destino sin número de cuota', function () {
@@ -296,7 +344,7 @@ it('el extra a capital sale como destino sin número de cuota', function () {
     );
 
     $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
-    app(\App\Services\Collection\AllocationSourcePresenter::class)->attachToInstallments($plan);
+    app(AllocationSourcePresenter::class)->attachToInstallments($plan);
 
     $sources = $plan->firstWhere('installment_number', 1)->sources;
     $capital = collect($sources[0]['also_applied_to'])->firstWhere('target_label', 'Abono a capital');
@@ -304,6 +352,7 @@ it('el extra a capital sale como destino sin número de cuota', function () {
     expect($tx->allocations->where('target', AllocationTarget::CAPITAL)->first()->amortization_installment_id)->toBeNull()
         ->and($sources)->toHaveCount(1)
         ->and((float) $sources[0]['amount'])->toBe(1000.0)
+        ->and($sources[0]['came_from'])->toBe([])
         ->and($capital['installment_number'])->toBeNull()
         ->and($capital['amount'])->toBe('500.00')
         ->and($plan->firstWhere('installment_number', 2)->sources)->toHaveCount(0);

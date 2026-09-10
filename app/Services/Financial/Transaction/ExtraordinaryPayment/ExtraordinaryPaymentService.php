@@ -3,13 +3,14 @@
 namespace App\Services\Financial\Transaction\ExtraordinaryPayment;
 
 use App\DTOs\CreateTransactionDTO;
+use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Models\Transaction;
-use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentAdvanceService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\PaymentReductionService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\Options\TermReductionService;
+use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -24,7 +25,7 @@ class ExtraordinaryPaymentService
 
     public function registerExtraordinaryPayment(CreateTransactionDTO $dto): Transaction
     {
-        if ($dto->transactionType !== \App\Enums\TransactionType::EXTRAORDINARY_PAYMENT) {
+        if ($dto->transactionType !== TransactionType::EXTRAORDINARY_PAYMENT) {
             throw ValidationException::withMessages([
                 'transaction_type' => 'Este flujo solo aplica a pagos extraordinarios.',
             ]);
@@ -59,6 +60,7 @@ class ExtraordinaryPaymentService
                 'amount' => $dto->amount,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
+                'payment_option' => filled($option) ? $option : null,
             ]);
 
             if ($this->allocator->leftoverExceedsTolerance($remainder)) {
@@ -79,6 +81,7 @@ class ExtraordinaryPaymentService
     private function resolveStrategy(string $option): object
     {
         return match ($option) {
+            'abono_capital' => $this->termReductionService,
             'reducir_plazo' => $this->termReductionService,
             'reducir_cuota' => $this->paymentReductionService,
             'adelantar_cuotas' => $this->paymentAdvanceService,

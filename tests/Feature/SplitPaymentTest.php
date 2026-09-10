@@ -368,3 +368,27 @@ it('la hoja de vida muestra el pago como una sola fila con su desglose', functio
     // Un solo movimiento en la hoja de vida: dos filas descuadrarían el saldo.
     expect(collect($rows)->where('amount', '2100000.00'))->toHaveCount(1);
 });
+
+it('guarda Recibo # en el movimiento dividido', function () {
+    $contract = splitContract();
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+
+    $this->postJson('/api/collections/split', [
+        'contract_id' => $contract->id,
+        'amount' => 2100000,
+        'to_down_payment' => 200000,
+        'to_installments' => 1900000,
+        'payment_date' => '2026-02-10',
+        'payment_method' => 'transfer',
+        'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258, 0289',
+    ])->assertCreated();
+
+    $tx = Transaction::query()
+        ->where('contract_id', $contract->id)
+        ->where('transaction_type', TransactionType::SPLIT_PAYMENT)
+        ->first();
+
+    expect($tx->receipt_number)->toBe('0258-0289')
+        ->and($tx->notes)->toBe('Recibo #0258-0289');
+});

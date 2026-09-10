@@ -13,8 +13,10 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Collection\TransactionAllocationRecorder;
 use App\Services\Financial\Amortization\AmortizationService;
+use App\Services\Residual\ResidualBalanceService;
 use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
+use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +25,7 @@ class DownPaymentService
 {
     public function __construct(
         private readonly TransactionAllocationRecorder $allocationRecorder,
+        private readonly ResidualBalanceService $residualBalanceService,
     ) {}
 
     public function registerDownPayment(CreateTransactionDTO $dto): Transaction
@@ -49,13 +52,15 @@ class DownPaymentService
                 ]);
             }
 
+            $receiptNumber = ReceiptNumber::normalize($dto->receiptNumber);
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
                 'transaction_type' => $dto->transactionType,
                 'amount' => $dto->amount,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
-                'notes' => $dto->notes,
+                'notes' => ReceiptNumber::mergeIntoNotes($dto->notes, $receiptNumber),
+                'receipt_number' => $receiptNumber,
             ]);
 
             if ($dto->receipt) {
@@ -83,6 +88,77 @@ class DownPaymentService
             $this->activateContractWhenDownPaymentIsComplete($contract);
 
             return $transaction;
+        });
+    }
+
+    /**
+     * Recibo histórico de inicial: una sola transacción por el monto completo
+     * del HV. Si el recibo supera el pendiente, #0 se cierra con lo pactado y
+     * el caller decide el sobrante (mora → residual → sobre-pactada).
+     *
+     * @return array{transaction: Transaction, applied: string, overage: string}
+     */
+    public function registerInicialReceipt(CreateTransactionDTO $dto): array
+    {
+        if ($dto->transactionType !== TransactionType::DOWN_PAYMENT) {
+            throw ValidationException::withMessages([
+                'transaction_type' => 'Esta ruta solo permite registrar abonos de cuota inicial.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($dto) {
+            $contract = Contract::findOrFail($dto->contractId);
+            $pendingBalance = DownPaymentLedger::pending($contract);
+            $full = $this->normalizeMoney((string) $dto->amount);
+
+            if ($this->residualIsWithinCompletionTolerance($pendingBalance)
+                && bccomp($pendingBalance, '0.00', 2) <= 0
+            ) {
+                throw ValidationException::withMessages([
+                    'amount' => 'La cuota inicial ya se encuentra completamente pagada.',
+                ]);
+            }
+
+            $applied = bccomp($full, $pendingBalance, 2) === 1 ? $pendingBalance : $full;
+            $overage = $this->normalizeMoney(bcsub($full, $applied, 2));
+            $receiptNumber = ReceiptNumber::normalize($dto->receiptNumber);
+
+            $transaction = Transaction::create([
+                'contract_id' => $contract->id,
+                'transaction_type' => $dto->transactionType,
+                'amount' => $full,
+                'transaction_date' => $dto->transactionDate,
+                'payment_method' => $dto->paymentMethod,
+                'notes' => ReceiptNumber::mergeIntoNotes($dto->notes, $receiptNumber),
+                'receipt_number' => $receiptNumber,
+            ]);
+
+            $initial = $contract->amortizationInstallments()
+                ->where('installment_number', 0)
+                ->first();
+            $this->allocationRecorder->recordDownPayment(
+                $transaction,
+                $initial,
+                $applied,
+                $applied,
+            );
+
+            $this->updateInitialInstallment($contract, new CreateTransactionDTO(
+                contractId: $dto->contractId,
+                amount: $applied,
+                transactionDate: $dto->transactionDate,
+                paymentMethod: $dto->paymentMethod,
+                transactionType: $dto->transactionType,
+                installmentNumbers: [],
+                notes: $dto->notes,
+            ));
+            $this->activateContractWhenDownPaymentIsComplete($contract);
+
+            return [
+                'transaction' => $transaction,
+                'applied' => $applied,
+                'overage' => $overage,
+            ];
         });
     }
 
@@ -140,6 +216,15 @@ class DownPaymentService
             'principal_paid' => $isComplete ? $principalValue : $accumulatedPrincipal,
             'interest_paid' => $isComplete ? $interestValue : $initialInstallment->interest_paid,
         ]);
+
+        if ($isComplete) {
+            $this->residualBalanceService->recordIfMinor(
+                (int) $contract->id,
+                (int) $initialInstallment->id,
+                (string) $updatedDebt,
+                true,
+            );
+        }
     }
 
     public function activateContractWhenDownPaymentIsComplete(Contract $contract): void

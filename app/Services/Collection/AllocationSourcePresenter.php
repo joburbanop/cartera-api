@@ -4,6 +4,7 @@ namespace App\Services\Collection;
 
 use App\Enums\AllocationTarget;
 use App\Models\AmortizationInstallment;
+use App\Support\ReceiptNumber;
 use App\Models\PaymentPromiseAllocation;
 use App\Models\Transaction;
 use App\Models\TransactionAllocation;
@@ -63,6 +64,8 @@ class AllocationSourcePresenter
                     return null;
                 }
 
+                $isOrigin = $this->isOriginAllocation($tx, $installmentId);
+
                 return [
                     'transaction_id' => $tx->id,
                     'transaction_date' => $tx->transaction_date?->toDateString(),
@@ -70,7 +73,12 @@ class AllocationSourcePresenter
                     'amount' => $this->money((string) $allocation->amount),
                     'principal' => $this->money((string) $allocation->principal),
                     'interest' => $this->money((string) $allocation->interest),
-                    'also_applied_to' => $this->alsoAppliedFromAllocations($tx, $installmentId),
+                    'also_applied_to' => $isOrigin
+                        ? $this->alsoAppliedFromAllocations($tx, $installmentId)
+                        : [],
+                    'came_from' => $isOrigin
+                        ? []
+                        : $this->cameFromOrigin($tx, $allocation),
                 ];
             })
             ->filter()
@@ -91,17 +99,81 @@ class AllocationSourcePresenter
                     return null;
                 }
 
+                $isOrigin = $this->isOriginPromiseAllocation($tx, $promiseId);
+
                 return [
                     'transaction_id' => $tx->id,
                     'transaction_date' => $tx->transaction_date?->toDateString(),
                     'receipt_number' => $this->receiptNumber($tx),
                     'amount' => $this->money((string) $allocation->amount),
-                    'also_applied_to' => $this->alsoAppliedFromPromise($tx, $promiseId),
+                    'also_applied_to' => $isOrigin
+                        ? $this->alsoAppliedFromPromise($tx, $promiseId)
+                        : [],
+                    'came_from' => $isOrigin
+                        ? []
+                        : $this->cameFromPromiseOrigin($tx, $allocation),
                 ];
             })
             ->filter()
             ->values()
             ->all();
+    }
+
+    /**
+     * El primer allocation del cobro es el origen del recibo; el resto es sobrante
+     * que aterrizó en otras cuotas o en capital. Misma lista que el reparto HV.
+     */
+    private function isOriginAllocation(Transaction $tx, int $currentInstallmentId): bool
+    {
+        $origin = $this->originAllocation($tx);
+        if (! $origin instanceof TransactionAllocation) {
+            return true;
+        }
+
+        return (int) $origin->amortization_installment_id === $currentInstallmentId;
+    }
+
+    private function originAllocation(Transaction $tx): ?TransactionAllocation
+    {
+        $origin = $tx->allocations->sortBy('id')->first();
+
+        return $origin instanceof TransactionAllocation ? $origin : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function cameFromOrigin(Transaction $tx, TransactionAllocation $current): array
+    {
+        $origin = $this->originAllocation($tx);
+        if (! $origin instanceof TransactionAllocation) {
+            return [];
+        }
+
+        return [$this->allocationPeer($origin, $this->money((string) $current->amount))];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function allocationPeer(TransactionAllocation $allocation, string $amount): array
+    {
+        $target = $allocation->target instanceof AllocationTarget
+            ? $allocation->target
+            : AllocationTarget::tryFrom((string) $allocation->target);
+
+        $installmentNumber = $allocation->installment
+            ? (int) $allocation->installment->installment_number
+            : null;
+        if ($installmentNumber === null && $target === AllocationTarget::DOWN_PAYMENT) {
+            $installmentNumber = 0;
+        }
+
+        return [
+            'target_label' => $target?->label() ?? (string) $allocation->target,
+            'installment_number' => $installmentNumber,
+            'amount' => $amount,
+        ];
     }
 
     /**
@@ -113,21 +185,61 @@ class AllocationSourcePresenter
             ->filter(function ($allocation) use ($currentInstallmentId) {
                 return (int) $allocation->amortization_installment_id !== $currentInstallmentId;
             })
-            ->map(function ($allocation) {
-                $target = $allocation->target instanceof AllocationTarget
-                    ? $allocation->target
-                    : AllocationTarget::tryFrom((string) $allocation->target);
-
-                return [
-                    'target_label' => $target?->label() ?? (string) $allocation->target,
-                    'installment_number' => $allocation->installment
-                        ? (int) $allocation->installment->installment_number
-                        : null,
-                    'amount' => $this->money((string) $allocation->amount),
-                ];
-            })
+            ->map(fn ($allocation) => $this->allocationPeer(
+                $allocation,
+                $this->money((string) $allocation->amount),
+            ))
             ->values()
             ->all();
+    }
+
+    /**
+     * Primer payment_promise_allocations del cobro = origen del recibo
+     * en el cronograma comercial. El resto es sobrante que aterrizó en
+     * otras promesas. No usa transaction_allocations.
+     */
+    private function isOriginPromiseAllocation(Transaction $tx, int $currentPromiseId): bool
+    {
+        $origin = $this->originPromiseAllocation($tx);
+        if (! $origin instanceof PaymentPromiseAllocation) {
+            return true;
+        }
+
+        return (int) $origin->payment_promise_id === $currentPromiseId;
+    }
+
+    private function originPromiseAllocation(Transaction $tx): ?PaymentPromiseAllocation
+    {
+        $origin = $tx->promiseAllocations->sortBy('id')->first();
+
+        return $origin instanceof PaymentPromiseAllocation ? $origin : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function cameFromPromiseOrigin(Transaction $tx, PaymentPromiseAllocation $current): array
+    {
+        $origin = $this->originPromiseAllocation($tx);
+        if (! $origin instanceof PaymentPromiseAllocation) {
+            return [];
+        }
+
+        return [$this->promisePeer($origin, $this->money((string) $current->amount))];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function promisePeer(PaymentPromiseAllocation $allocation, string $amount): array
+    {
+        $number = $allocation->promise?->payment_number;
+
+        return [
+            'target_label' => $number ? 'Promesa #'.$number : 'Otra promesa',
+            'installment_number' => $number !== null ? (int) $number : null,
+            'amount' => $amount,
+        ];
     }
 
     /**
@@ -158,13 +270,10 @@ class AllocationSourcePresenter
                 continue;
             }
 
-            $number = $allocation->promise?->payment_number;
-
-            $others[] = [
-                'target_label' => $number ? 'Promesa #'.$number : 'Otra promesa',
-                'installment_number' => $number !== null ? (int) $number : null,
-                'amount' => $this->money((string) $allocation->amount),
-            ];
+            $others[] = $this->promisePeer(
+                $allocation,
+                $this->money((string) $allocation->amount),
+            );
         }
 
         return $others;
@@ -172,14 +281,7 @@ class AllocationSourcePresenter
 
     private function receiptNumber(Transaction $tx): ?string
     {
-        $notes = (string) ($tx->notes ?? '');
-        if (preg_match('/Recibo\s*#\s*([^|]+)/u', $notes, $match)) {
-            $value = trim($match[1]);
-
-            return $value !== '' ? $value : null;
-        }
-
-        return null;
+        return ReceiptNumber::fromStored($tx->receipt_number, $tx->notes);
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Services\Residual\ResidualBalanceService;
 use App\Support\DueDateRules;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
@@ -14,6 +15,10 @@ use Illuminate\Validation\ValidationException;
 
 class InstallmentPaymentAllocator
 {
+    public function __construct(
+        private readonly ResidualBalanceService $residualBalanceService,
+    ) {}
+
     /**
      * Imputación interés→capital, polvo de centavos y condonación de residual.
      * No escribe en base. El excedente (pago − deuda) se normaliza con ABSORBED_SURPLUS.
@@ -41,11 +46,7 @@ class InstallmentPaymentAllocator
         ));
         $interestAlreadyPaid = $this->normalizeMoney((string) ($installment->interest_paid ?? '0.00'));
         $principalAlreadyPaid = $this->normalizeMoney((string) ($installment->principal_paid ?? '0.00'));
-        $currentQuotaDebt = $this->normalizeMoney((string) ($installment->quota_debt ?? '0.00'));
-
-        $pendingDebt = bccomp($currentQuotaDebt, '0.00', 2) > 0
-            ? $currentQuotaDebt
-            : $this->maxZero(bcsub($installmentValue, bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2), 2));
+        $pendingDebt = $this->pendingDebtOf($installment);
 
         if (bccomp($paymentAmount, '0.00', 2) <= 0) {
             return [
@@ -117,6 +118,7 @@ class InstallmentPaymentAllocator
         Carbon $paymentDate,
         ?Contract $contract = null,
     ): array {
+        $pendingDebt = $this->pendingDebtOf($installment);
         $impact = $this->computeImpact($installment, $paymentAmount, $contract ?? $installment->contract);
         $statusValue = $impact['status'] instanceof AmortizationStatus
             ? $impact['status']->value
@@ -130,6 +132,17 @@ class InstallmentPaymentAllocator
                 'interest_paid' => $impact['interest_paid'],
                 'principal_paid' => $impact['principal_paid'],
             ]);
+
+            $forgiven = $this->maxZero(bcsub($pendingDebt, $impact['applied'], 2));
+            $quotaClosed = bccomp($impact['quota_debt'], '0.00', 2) <= 0
+                && $statusValue === AmortizationStatus::PAID->value;
+
+            $this->residualBalanceService->recordIfMinor(
+                (int) $installment->contract_id,
+                (int) $installment->id,
+                $forgiven,
+                $quotaClosed,
+            );
         }
 
         return [
@@ -253,7 +266,13 @@ class InstallmentPaymentAllocator
         $overdue = $this->unpaidOverdueInstallments($contract);
         $overdueIds = $overdue->map(fn (AmortizationInstallment $row) => (int) $row->id)->all();
 
-        $selected = new EloquentCollection();
+        $current = $this->unpaidCurrentInstallments($contract)
+            ->filter(fn (AmortizationInstallment $row) => ! in_array((int) $row->id, $overdueIds, true))
+            ->values();
+        $currentIds = $current->map(fn (AmortizationInstallment $row) => (int) $row->id)->all();
+        $alreadyQueued = array_values(array_unique([...$overdueIds, ...$currentIds]));
+
+        $selected = new EloquentCollection;
 
         if ($selectedIds !== []) {
             $byId = $contract->amortizationInstallments()
@@ -263,7 +282,7 @@ class InstallmentPaymentAllocator
                 ->keyBy(fn (AmortizationInstallment $row) => (int) $row->id);
 
             foreach ($selectedIds as $id) {
-                if (in_array($id, $overdueIds, true)) {
+                if (in_array($id, $alreadyQueued, true)) {
                     continue;
                 }
 
@@ -274,13 +293,40 @@ class InstallmentPaymentAllocator
             }
         }
 
-        return $overdue->values()->concat($selected)->values();
+        return $overdue->values()->concat($current)->concat($selected)->values();
+    }
+
+    /**
+     * Cuota vigente del mes: due_date en el mes calendario de hoy y aún no vencida.
+     * Misma excepción de preventa que la mora regular.
+     */
+    public function unpaidCurrentInstallments(Contract $contract): EloquentCollection
+    {
+        if ($this->suppressesRegularOverdue($contract)) {
+            return new EloquentCollection;
+        }
+
+        $today = DueDateRules::asOfDate();
+        $endOfMonth = Carbon::parse($today)->endOfMonth()->toDateString();
+
+        return $contract->amortizationInstallments()
+            ->where('installment_number', '>', 0)
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->whereDate('due_date', '>=', $today)
+            ->whereDate('due_date', '<=', $endOfMonth)
+            ->where(function ($query) {
+                $query->where('quota_debt', '>', 0)
+                    ->orWhere('status', AmortizationStatus::OVERDUE->value);
+            })
+            ->orderBy('due_date', 'asc')
+            ->orderBy('installment_number', 'asc')
+            ->get();
     }
 
     public function unpaidOverdueInstallments(Contract $contract): EloquentCollection
     {
         if ($this->suppressesRegularOverdue($contract)) {
-            return new EloquentCollection();
+            return new EloquentCollection;
         }
 
         $today = DueDateRules::asOfDate();
@@ -395,6 +441,18 @@ class InstallmentPaymentAllocator
         }
 
         return ! FinancialRules::residualIsWithinCompletionTolerance($debt);
+    }
+
+    private function pendingDebtOf(AmortizationInstallment $installment): string
+    {
+        $installmentValue = $this->normalizeMoney((string) ($installment->installment_value ?? '0.00'));
+        $interestAlreadyPaid = $this->normalizeMoney((string) ($installment->interest_paid ?? '0.00'));
+        $principalAlreadyPaid = $this->normalizeMoney((string) ($installment->principal_paid ?? '0.00'));
+        $currentQuotaDebt = $this->normalizeMoney((string) ($installment->quota_debt ?? '0.00'));
+
+        return bccomp($currentQuotaDebt, '0.00', 2) > 0
+            ? $currentQuotaDebt
+            : $this->maxZero(bcsub($installmentValue, bcadd($interestAlreadyPaid, $principalAlreadyPaid, 2), 2));
     }
 
     private function statusEnum(AmortizationInstallment $installment): AmortizationStatus

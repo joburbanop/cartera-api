@@ -7,6 +7,7 @@ use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationCalculationService;
+use App\Support\ReceiptNumber;
 use App\Services\Financial\Refinancing\AcuerdoPagoService;
 use App\Services\Financial\Refinancing\RefinanceContractService;
 use Spatie\Activitylog\Models\Activity;
@@ -61,7 +62,7 @@ class ContractLifeSheetService
                 'transaction_id' => $tx->id,
                 'date' => $tx->transaction_date?->toDateString(),
                 'concept' => $this->conceptFrom($notes, $tx),
-                'receipt_number' => $this->receiptFrom($notes),
+                'receipt_number' => ReceiptNumber::fromStored($tx->receipt_number, $notes),
                 'efectivo' => $method === PaymentMethod::CASH ? $amount : '0.00',
                 'bancolombia' => $method === PaymentMethod::TRANSFER ? $amount : '0.00',
                 'occidente' => $method === PaymentMethod::BANK ? $amount : '0.00',
@@ -314,19 +315,9 @@ class ContractLifeSheetService
             TransactionType::EXTRAORDINARY_PAYMENT => 'ABONO EXTRAORDINARIO',
             TransactionType::DEFERRED_INTEREST => 'INTERÉS DIFERIDO',
             TransactionType::SPLIT_PAYMENT => 'CUOTA INICIAL + CUOTA',
+            TransactionType::RESIDUAL_COLLECTION => 'RESIDUALES MENORES',
             default => 'PAGO',
         };
-    }
-
-    private function receiptFrom(string $notes): ?string
-    {
-        if (preg_match('/Recibo\s*#\s*([^|]+)/u', $notes, $match)) {
-            $value = trim($match[1]);
-
-            return $value !== '' ? $value : null;
-        }
-
-        return null;
     }
 
     /**
@@ -358,7 +349,7 @@ class ContractLifeSheetService
      */
     private function amortizationApplication(Contract $contract, Transaction $tx, string $notes): array
     {
-        $receipt = $this->receiptFrom($notes);
+        $receipt = ReceiptNumber::fromStored($tx->receipt_number, $notes);
         if ($receipt === null) {
             return [];
         }

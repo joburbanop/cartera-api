@@ -298,6 +298,55 @@ it('en lotes 6 y 45 usa el VR LOTE del Excel, no la cuantía del PDF', function 
     unlink($path);
 });
 
+it('un recibo INICIAL mayor que la pactada queda en un solo down_payment', function () {
+    $path = sys_get_temp_dir().'/san-miguel-inicial-overage-'.uniqid().'.xlsx';
+    $spreadsheet = new Spreadsheet;
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('LOTE 99');
+    $sheet->setCellValue('C1', 'Modalidad');
+    $sheet->setCellValue('A5', 100000);
+    $sheet->setCellValue('D2', 20000);
+    $sheet->setCellValue('D4', 0.01);
+    $sheet->setCellValue('D5', 12);
+    $sheet->setCellValue('C7', 'CLIENTE:');
+    $sheet->setCellValue('D7', 'ANA EXISTENTE');
+    $sheet->setCellValue('C8', 'CEDULA:');
+    $sheet->setCellValue('D8', '900900900');
+    $sheet->setCellValue('C9', 'Nper');
+    $sheet->setCellValue('C11', '15/02/2025');
+    $sheet->fromArray([
+        'FECHA', 'CONCEPTO', 'RECIBO #', 'EFECTIVO', 'BANCOLOMBIA', 'OCCIDENTE 6391', 'VALOR SIN CUENTA', 'TOTAL PAGO', 'APLICA A CUOTAS', 'SALDO', 'OBSERVACIÓN',
+    ], null, 'L9');
+    $sheet->setCellValue('L11', '10/01/2025');
+    $sheet->setCellValue('M11', 'CUOTA INICIAL');
+    $sheet->setCellValue('N11', 'R-OV');
+    $sheet->setCellValue('O11', 30000);
+    $sheet->setCellValue('S11', 30000);
+    $sheet->setCellValue('U11', 70000);
+    (new Xlsx($spreadsheet))->save($path);
+
+    $this->artisan('import:san-miguel', [
+        'archivo' => $path,
+        '--solo-lote' => '99',
+    ])->assertSuccessful();
+
+    $contract = Contract::query()->where('contract_number', 'SM-LOTE-99')->firstOrFail();
+    $downs = $contract->transactions()->where('transaction_type', TransactionType::DOWN_PAYMENT)->get();
+    $inicialRegulars = $contract->transactions()
+        ->where('transaction_type', TransactionType::REGULAR_PAYMENT)
+        ->get()
+        ->filter(fn (Transaction $tx) => str_contains((string) $tx->notes, 'INICIAL'));
+    $initial = $contract->amortizationInstallments()->where('installment_number', 0)->first();
+
+    expect($downs)->toHaveCount(1)
+        ->and((float) $downs->first()->amount)->toBe(30000.0)
+        ->and($inicialRegulars)->toHaveCount(0)
+        ->and((float) $initial->principal_paid)->toBe(30000.0)
+        ->and($initial->status)->toBe(AmortizationStatus::PAID);
+
+    unlink($path);
+});
+
 it('con --solo-lote importa únicamente esa pestaña', function () {
     $path = sanMiguelFixturePath();
 

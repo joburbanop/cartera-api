@@ -4,13 +4,14 @@ use App\Enums\AmortizationStatus;
 use App\Enums\LotStatus;
 use App\Enums\RoleName;
 use App\Enums\TransactionType;
-use App\Services\Collection\CascadeCollectionService;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
 use App\Models\Transaction;
+use App\Services\Collection\CascadeCollectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Spatie\Activitylog\Models\Activity;
 
 uses(RefreshDatabase::class);
 
@@ -170,6 +171,36 @@ it('rechaza el cobro HTTP si hay excedente y no viene destino', function () {
     expect($contract->fresh()->transactions()->count())->toBe(0);
 });
 
+it('acepta abono_capital como destino HTTP del excedente y no lo trata como adelanto', function () {
+    $contract = preventaCascadeContract(LotStatus::VENDIDO->value, '1000.00', '0.00');
+    $contract->amortizationInstallments()
+        ->where('installment_number', '>', 1)
+        ->update([
+            'status' => AmortizationStatus::PENDING->value,
+            'due_date' => now()->addMonth()->toDateString(),
+        ]);
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+
+    $this->postJson('/api/collections/cascade', [
+        'contract_id' => $contract->id,
+        'amount' => 1500,
+        'transaction_date' => now()->toDateString(),
+        'selected_installments' => [$cuota1->id],
+        'payment_option' => 'abono_capital',
+    ])->assertCreated();
+
+    $cuota1->refresh();
+    $cuota2 = $contract->amortizationInstallments()->where('installment_number', 2)->first();
+
+    expect($cuota1->status)->toBe(AmortizationStatus::PAID)
+        ->and($cuota1->extra_payment)->toBe('500.00')
+        ->and($cuota2)->not->toBeNull()
+        ->and($cuota2->status)->toBe(AmortizationStatus::PENDING)
+        ->and($cuota2->quota_debt)->toBe('1000.00')
+        ->and((float) $cuota2->extra_payment)->toBe(0.0)
+        ->and($contract->transactions()->latest('id')->first()?->payment_option)->toBe('abono_capital');
+});
+
 it('en lote que no es preventa no desvia el pago a la inicial', function () {
     $contract = preventaCascadeContract(LotStatus::DISPONIBLE->value, '1000.00', '1000.00');
 
@@ -183,4 +214,58 @@ it('en lote que no es preventa no desvia el pago a la inicial', function () {
         ->and($contract->transactions()->where('transaction_type', TransactionType::REGULAR_PAYMENT)->count())->toBe(1)
         ->and($contract->amortizationInstallments()->where('installment_number', 0)->first()->quota_debt)->toBe('1000.00')
         ->and($contract->amortizationInstallments()->where('installment_number', 1)->first()->quota_debt)->toBe('0.00');
+});
+
+it('rechaza tarjeta en un pago nuevo de cascada', function () {
+    $contract = preventaCascadeContract(LotStatus::DISPONIBLE->value, '1000.00', '1000.00');
+
+    $this->postJson('/api/collections/cascade', [
+        'contract_id' => $contract->id,
+        'amount' => 1000,
+        'payment_method' => 'card',
+        'transaction_date' => now()->toDateString(),
+    ])->assertStatus(422)->assertJsonValidationErrors(['payment_method']);
+});
+
+it('guarda Recibo # en columna, notes y bitácora', function () {
+    $contract = preventaCascadeContract(LotStatus::DISPONIBLE->value, '1000.00', '1000.00');
+
+    $this->postJson('/api/collections/cascade', [
+        'contract_id' => $contract->id,
+        'amount' => 1000,
+        'payment_method' => 'cash',
+        'transaction_date' => now()->toDateString(),
+        'receipt_number' => '0258, 0289',
+    ])->assertCreated();
+
+    $tx = $contract->transactions()->where('transaction_type', TransactionType::REGULAR_PAYMENT)->first();
+    expect($tx->receipt_number)->toBe('0258-0289')
+        ->and($tx->notes)->toBe('Recibo #0258-0289');
+
+    $log = Activity::query()
+        ->where('subject_type', $contract::class)
+        ->where('subject_id', $contract->id)
+        ->where('properties->transaction_id', $tx->id)
+        ->latest('id')
+        ->first();
+
+    expect($log)->not->toBeNull()
+        ->and($log->description)->toBe('Registró un pago de $1,000.00 mediante cash sobre el contrato (Recibo #0258-0289)')
+        ->and($log->properties['receipt_number'] ?? null)->toBe('0258-0289');
+});
+
+it('en preventa guarda Recibo # en la transacción de inicial', function () {
+    $contract = preventaCascadeContract(LotStatus::PREVENTA->value, '1000.00', '1000.00');
+
+    $this->postJson('/api/collections/cascade', [
+        'contract_id' => $contract->id,
+        'amount' => 1000,
+        'payment_method' => 'cash',
+        'transaction_date' => now()->toDateString(),
+        'receipt_number' => '0101',
+    ])->assertCreated();
+
+    $tx = $contract->transactions()->where('transaction_type', TransactionType::DOWN_PAYMENT)->first();
+    expect($tx->receipt_number)->toBe('0101')
+        ->and($tx->notes)->toBe('Recibo #0101');
 });

@@ -194,8 +194,10 @@ it('con dos vencidas, adelantar_cuotas sin seleccion no regenera el plan futuro'
         ->and($third->status)->toBe(AmortizationStatus::PAID)
         ->and($third->extra_payment)->toBe('500.00')
         ->and($fourth->status)->toBe(AmortizationStatus::PENDING)
-        ->and($fourth->installment_value)->toBe('1000.00')
-        ->and($fourth->quota_debt)->toBe('1000.00');
+        ->and($contract->amortizationInstallments()->count())->toBe(4)
+        ->and($fourth->installment_value)->toBe('500.00')
+        ->and($fourth->quota_debt)->toBe('500.00')
+        ->and($fourth->remaining_balance)->toBe('0.00');
 });
 
 it('si el pago con payment_option solo cubre vencidas no aplica estrategia y no falla', function () {

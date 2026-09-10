@@ -3,6 +3,7 @@
 namespace App\Services\Financial\Amortization;
 
 use App\Enums\AmortizationStatus;
+use App\Models\AmortizationInstallment;
 use App\Models\Contract;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
@@ -138,6 +139,93 @@ class AmortizationCalculationService
         }
 
         return $schedule;
+    }
+
+    /**
+     * Recalcula interés, capital y saldo de las cuotas posteriores a `$fromInstallmentNumber`
+     * sobre el remaining_balance ya reducido. Conserva el PMT, los IDs y el número de filas.
+     */
+    public function recalculateFutureKeepingQuota(Contract $contract, int $fromInstallmentNumber): void
+    {
+        if ($fromInstallmentNumber <= 0) {
+            return;
+        }
+
+        $from = $contract->amortizationInstallments()
+            ->where('installment_number', $fromInstallmentNumber)
+            ->first();
+        if (! $from) {
+            return;
+        }
+
+        $balance = $this->normalizeMoney((string) ($from->remaining_balance ?? '0.00'));
+        $pmt = $this->normalizeMoney((string) ($from->installment_value ?? '0.00'));
+        $ratePercent = (string) ($contract->interest_rate ?? '0');
+
+        $future = $contract->amortizationInstallments()
+            ->where('installment_number', '>', $fromInstallmentNumber)
+            ->orderBy('installment_number')
+            ->get();
+
+        $remainingCount = $future->count();
+        foreach ($future as $index => $row) {
+            $isLast = $index === $remainingCount - 1;
+            $this->recalculateKeepingQuotaRow($row, $balance, $pmt, $ratePercent, $isLast);
+        }
+    }
+
+    private function recalculateKeepingQuotaRow(
+        AmortizationInstallment $row,
+        string &$balance,
+        string $pmt,
+        string $ratePercent,
+        bool $isLast,
+    ): void {
+        if (bccomp($balance, '0.00', 2) <= 0) {
+            $row->update([
+                'interest_value' => '0.00',
+                'principal_value' => '0.00',
+                'remaining_balance' => '0.00',
+                'projected_balance' => '0.00',
+            ]);
+
+            return;
+        }
+
+        $interest = $this->calculateInterest($balance, $ratePercent);
+
+        if ($isLast) {
+            $principal = $balance;
+            $installmentValue = $this->normalizeMoney(bcadd($principal, $interest, 2));
+            $newBalance = '0.00';
+            $updates = [
+                'installment_value' => $installmentValue,
+                'interest_value' => $interest,
+                'principal_value' => $this->normalizeMoney($principal),
+                'remaining_balance' => $newBalance,
+                'projected_balance' => $newBalance,
+            ];
+            if ($row->status !== AmortizationStatus::PAID) {
+                $updates['quota_debt'] = $installmentValue;
+            }
+            $row->update($updates);
+            $balance = $newBalance;
+
+            return;
+        }
+
+        $principal = $this->calculatePrincipal($pmt, $interest);
+        $newBalance = bccomp($balance, $principal, 2) <= 0
+            ? '0.00'
+            : $this->calculateRemainingBalance($balance, $principal);
+
+        $row->update([
+            'interest_value' => $interest,
+            'principal_value' => $this->normalizeMoney($principal),
+            'remaining_balance' => $newBalance,
+            'projected_balance' => $newBalance,
+        ]);
+        $balance = $newBalance;
     }
 
     protected function getDueDate(Contract $contract, int $installmentNumber): string

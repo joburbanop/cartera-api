@@ -113,6 +113,29 @@ it('cascades a regular overpayment onto later pending installments when no extra
         ->and($third->remaining_balance)->toBe('1000.00');
 });
 
+it('paga la mora seleccionada antes que la corriente inyectada', function () {
+    $contract = surplusCascadeContract();
+    $first = $contract->amortizationInstallments()->where('installment_number', 1)->first();
+
+    app(RegularPaymentService::class)->registerRegularPayment(new CreateTransactionDTO(
+        contractId: $contract->id,
+        amount: '400.00',
+        transactionDate: Carbon::parse(now()->toDateString()),
+        paymentMethod: PaymentMethod::CASH,
+        transactionType: TransactionType::REGULAR_PAYMENT,
+        installmentNumbers: [(int) $first->id],
+    ));
+
+    $first->refresh();
+    $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
+
+    expect($first->quota_debt)->toBe('600.00')
+        ->and($first->status)->toBe(AmortizationStatus::OVERDUE)
+        ->and($second->quota_debt)->toBe('1000.00')
+        ->and($second->status)->toBe(AmortizationStatus::PENDING)
+        ->and(number_format((float) $second->interest_paid, 2, '.', ''))->toBe('0.00');
+});
+
 it('rejects a regular payment when the contract is already fully settled', function () {
     $contract = surplusCascadeContract();
 

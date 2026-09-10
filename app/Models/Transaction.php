@@ -18,6 +18,8 @@ class Transaction extends Model
         'transaction_date',
         'payment_method',
         'notes',
+        'receipt_number',
+        'payment_option',
     ];
 
     protected function casts(): array

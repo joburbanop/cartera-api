@@ -18,15 +18,20 @@ class PaymentAdvanceServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** Números auditados de SM-LOTE-3: extra en #1 → interés de #2 sobre el saldo ya reducido. */
     private const RATE = '1.00';
 
-    private const TERM_MONTHS = 12;
+    private const TERM_MONTHS = 60;
 
-    private const SALE_PRICE = '100000000.00';
+    private const SALE_PRICE = '97116000.00';
 
     private const DOWN_PAYMENT = '20000000.00';
 
-    private const SURPLUS = '20000000.00';
+    private const SURPLUS = '184597.17';
+
+    private const EXPECTED_REMAINING_AFTER_EXTRA = '75987160.00';
+
+    private const EXPECTED_NEXT_INTEREST = '759871.60';
 
     private Contract $contract;
 
@@ -38,7 +43,7 @@ class PaymentAdvanceServiceTest extends TestCase
 
         $project = Project::query()->create([
             'name' => 'Proyecto Adelantar Cuotas',
-            'description' => 'Abono extraordinario sin recálculo de futuro',
+            'description' => 'Abono extraordinario con recálculo de interés futuro',
             'location' => 'Bogota',
             'status' => 'active',
             'created_by' => $user->id,
@@ -53,10 +58,10 @@ class PaymentAdvanceServiceTest extends TestCase
             'term_months' => self::TERM_MONTHS,
             'interest_rate' => self::RATE,
             'status' => 'activo',
-            'start_date' => '2025-01-05',
-            'initial_payment_date' => '2025-01-05',
-            'first_installment_date' => '2025-02-05',
-            'regular_payment_start_date' => '2025-02-05',
+            'start_date' => '2025-03-15',
+            'initial_payment_date' => '2025-03-15',
+            'first_installment_date' => '2025-04-15',
+            'regular_payment_start_date' => '2025-04-15',
             'preventa_installments_count' => 0,
         ]);
     }
@@ -65,15 +70,14 @@ class PaymentAdvanceServiceTest extends TestCase
     {
         app(AmortizationService::class)->generateInitialProjection($this->contract);
 
-        $this->markAsPaid(1);
-        $this->markAsPaid(2);
-
-        $current = $this->installment(3);
-        $balanceBeforeSurplus = (string) $current->remaining_balance;
-        $futureBefore = $this->snapshotFuture();
+        $current = $this->installment(1);
+        $next = $this->installment(2);
+        $interestBefore = (string) $next->interest_value;
+        $nextId = (int) $next->id;
+        $pmt = (string) $current->installment_value;
         $maxBefore = (int) $this->contract->amortizationInstallments()->max('installment_number');
         $futureCountBefore = $this->contract->amortizationInstallments()
-            ->where('installment_number', '>', 3)
+            ->where('installment_number', '>', 1)
             ->count();
 
         app(ExtraordinaryPaymentService::class)->handle(
@@ -84,13 +88,20 @@ class PaymentAdvanceServiceTest extends TestCase
         );
 
         $current->refresh();
+        $next->refresh();
 
         $this->assertSame(AmortizationStatus::PAID, $current->status);
         $this->assertSame(self::SURPLUS, (string) $current->extra_payment);
-        $this->assertSame(bcsub($balanceBeforeSurplus, self::SURPLUS, 2), (string) $current->remaining_balance);
-
-        $this->assertSame($futureBefore, $this->snapshotFuture());
-        $this->assertSame($futureCountBefore, $this->contract->amortizationInstallments()->where('installment_number', '>', 3)->count());
+        $this->assertSame(self::EXPECTED_REMAINING_AFTER_EXTRA, (string) $current->remaining_balance);
+        $this->assertSame(self::EXPECTED_NEXT_INTEREST, (string) $next->interest_value);
+        $this->assertSame(
+            number_format((float) bcsub($pmt, self::EXPECTED_NEXT_INTEREST, 2), 2, '.', ''),
+            (string) $next->principal_value,
+        );
+        $this->assertNotSame($interestBefore, (string) $next->interest_value);
+        $this->assertSame($nextId, (int) $next->id);
+        $this->assertSame($pmt, (string) $next->installment_value);
+        $this->assertSame($futureCountBefore, $this->contract->amortizationInstallments()->where('installment_number', '>', 1)->count());
         $this->assertSame($maxBefore, (int) $this->contract->amortizationInstallments()->max('installment_number'));
         $this->assertSame(self::TERM_MONTHS, $maxBefore);
     }
@@ -100,38 +111,5 @@ class PaymentAdvanceServiceTest extends TestCase
         return $this->contract->amortizationInstallments()
             ->where('installment_number', $number)
             ->firstOrFail();
-    }
-
-    private function markAsPaid(int $number): void
-    {
-        $installment = $this->installment($number);
-
-        $installment->update([
-            'status' => AmortizationStatus::PAID->value,
-            'quota_debt' => '0.00',
-            'interest_paid' => $installment->interest_value,
-            'principal_paid' => $installment->principal_value,
-            'payment_date' => $installment->due_date,
-        ]);
-    }
-
-    private function snapshotFuture(): array
-    {
-        return $this->contract->amortizationInstallments()
-            ->where('installment_number', '>', 3)
-            ->orderBy('installment_number', 'asc')
-            ->get()
-            ->map(fn (AmortizationInstallment $row) => [
-                'id' => (int) $row->id,
-                'installment_number' => (int) $row->installment_number,
-                'installment_value' => (string) $row->installment_value,
-                'interest_value' => (string) $row->interest_value,
-                'principal_value' => (string) $row->principal_value,
-                'quota_debt' => (string) $row->quota_debt,
-                'remaining_balance' => (string) $row->remaining_balance,
-                'projected_balance' => (string) $row->projected_balance,
-                'status' => $row->status->value,
-            ])
-            ->all();
     }
 }

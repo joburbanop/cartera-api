@@ -34,6 +34,7 @@ class PreventaThenCascadeCollectionService
         ?UploadedFile $receipt = null,
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
+        ?string $receiptNumber = null,
     ): array {
         return DB::transaction(function () use (
             $contractId,
@@ -44,6 +45,7 @@ class PreventaThenCascadeCollectionService
             $receipt,
             $paymentMethod,
             $notes,
+            $receiptNumber,
         ) {
             $contract = Contract::query()->with('lot')->findOrFail($contractId);
             $normalizedAmount = $this->money($amount);
@@ -60,6 +62,7 @@ class PreventaThenCascadeCollectionService
                     $receipt,
                     $method,
                     $notes,
+                    receiptNumber: $receiptNumber,
                 );
             }
 
@@ -78,6 +81,7 @@ class PreventaThenCascadeCollectionService
                 installmentNumbers: [],
                 notes: $notes,
                 receipt: $receipt,
+                receiptNumber: $receiptNumber,
             ));
 
             $cascade = null;
@@ -91,6 +95,7 @@ class PreventaThenCascadeCollectionService
                     null,
                     $method,
                     $notes,
+                    receiptNumber: $receiptNumber,
                 );
             }
 

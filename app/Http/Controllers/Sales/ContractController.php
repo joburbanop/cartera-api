@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreContractRequest;
 use App\Models\Contract;
 use App\Models\Customer;
+use App\Services\Residual\ResidualBalanceService;
 use App\Services\Sales\ContractService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,8 @@ class ContractController extends Controller
     use ApiResponse;
 
     public function __construct(
-        protected ContractService $contractService
+        protected ContractService $contractService,
+        protected ResidualBalanceService $residualBalanceService,
     ) {}
 
     public function store(StoreContractRequest $request): JsonResponse
@@ -86,8 +88,14 @@ class ContractController extends Controller
             'transactions.allocations',
         ]);
 
+        $payload = $contract->toArray();
+        $residual = $this->residualBalanceService->summary((int) $contract->id);
+        $payload['pending_residual_balance'] = $residual['pending_sum'];
+        $payload['residual_balance_collectible'] = $residual['collectible'];
+        $payload['residual_collectible_threshold'] = $residual['collectible_threshold'];
+
         return $this->successResponse(
-            $contract,
+            $payload,
             'Detalles del contrato obtenidos exitosamente.'
         );
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\PaymentMethod;
+use App\Services\Collection\CascadeCollectionService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -27,7 +28,7 @@ class StoreSplitPaymentRequest extends FormRequest
             'amount' => ['required', 'numeric', 'min:1'],
             'to_down_payment' => ['required', 'numeric', 'gt:0'],
             'to_installments' => ['required', 'numeric', 'gt:0'],
-            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas'],
+            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas,abono_capital'],
             'transaction_date' => ['nullable', 'date'],
             'payment_date' => ['nullable', 'date'],
             'selected_installments' => ['nullable', 'array'],
@@ -40,8 +41,9 @@ class StoreSplitPaymentRequest extends FormRequest
                     ),
             ],
             'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            'payment_method' => ['nullable', Rule::enum(PaymentMethod::class)],
+            'payment_method' => ['nullable', PaymentMethod::ruleForNewPayments()],
             'notes' => ['nullable', 'string', 'max:500'],
+            'receipt_number' => ['nullable', 'string', 'max:80'],
         ];
     }
 
@@ -74,8 +76,8 @@ class StoreSplitPaymentRequest extends FormRequest
             'to_down_payment.gt' => 'Indica cuánto del pago va a la cuota inicial.',
             'to_installments.gt' => 'Indica cuánto del pago va a la cuota regular.',
             'selected_installments.*.exists' => 'No puedes incluir la Cuota Inicial entre las cuotas regulares.',
-            'payment_option.required' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
-            'payment_option.in' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.required' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.in' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
         ];
     }
 

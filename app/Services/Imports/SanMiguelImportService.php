@@ -39,6 +39,7 @@ class SanMiguelImportService
         private readonly ContractService $contractService,
         private readonly DownPaymentService $downPaymentService,
         private readonly CascadeCollectionService $cascadeCollectionService,
+        private readonly SanMiguelConceptReplayService $conceptReplayService,
         private readonly SanMiguelWipeService $wipeService,
         private readonly SanMiguelHistoricalFinalizeService $historicalFinalizeService,
     ) {}
@@ -339,12 +340,9 @@ class SanMiguelImportService
             return;
         }
 
-        $toInicial = bccomp($payment->amount, $pending, 2) === 1 ? $pending : $payment->amount;
-        $remainder = bcsub($payment->amount, $toInicial, 2);
-
-        $this->downPaymentService->registerDownPayment(new CreateTransactionDTO(
+        $registered = $this->downPaymentService->registerInicialReceipt(new CreateTransactionDTO(
             contractId: $contract->id,
-            amount: $toInicial,
+            amount: $payment->amount,
             transactionDate: $payment->date,
             paymentMethod: $payment->paymentMethod,
             transactionType: TransactionType::DOWN_PAYMENT,
@@ -352,8 +350,13 @@ class SanMiguelImportService
             notes: $notes,
         ));
 
-        if (bccomp($remainder, '0.00', 2) === 1) {
-            $this->applyCascadePayment($contract, $payment, $remainder, $notes);
+        if (bccomp($registered['overage'], '0.00', 2) === 1) {
+            $this->conceptReplayService->applyInicialOverage(
+                $contract->fresh(),
+                $registered['transaction'],
+                $registered['overage'],
+                $payment->date->copy()->startOfDay(),
+            );
         }
     }
 

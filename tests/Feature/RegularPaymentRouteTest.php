@@ -21,6 +21,7 @@ it('maps selected installments and payment option into the regular payment DTO',
     $request->shouldReceive('validated')->with('payment_option', Mockery::any())->andReturn('reducir_plazo');
     $request->shouldReceive('validated')->with('surplus_action', Mockery::any())->andReturn(null);
     $request->shouldReceive('validated')->with('recalculation_type', Mockery::any())->andReturn('reducir_plazo');
+    $request->shouldReceive('validated')->with('receipt_number')->andReturn(null);
     $request->shouldReceive('file')->with('receipt')->andReturn(UploadedFile::fake()->create('receipt.pdf', 10, 'application/pdf'));
 
     $dto = CreateTransactionDTO::fromRequest($request, 42);

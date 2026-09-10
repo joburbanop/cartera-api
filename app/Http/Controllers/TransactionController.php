@@ -6,6 +6,7 @@ use App\DTOs\CreateTransactionDTO;
 use App\Http\Requests\StoreTransactionRequest;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\TransactionService;
+use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
@@ -66,6 +67,7 @@ class TransactionController extends Controller
             'transaction_type' => $transaction->transaction_type,
             'amount' => $transaction->amount,
             'payment_method' => $transaction->payment_method,
+            'receipt_number' => ReceiptNumber::fromStored($transaction->receipt_number, $transaction->notes),
             'transaction_date' => $transaction->transaction_date?->format('Y-m-d'),
             'created_at' => $transaction->created_at?->format('Y-m-d H:i:s'),
             'receipt' => $transaction->receipt
@@ -130,6 +132,7 @@ class TransactionController extends Controller
             'transaction_type' => $transaction->transaction_type,
             'amount' => $transaction->amount,
             'payment_method' => $transaction->payment_method,
+            'receipt_number' => ReceiptNumber::fromStored($transaction->receipt_number, $transaction->notes),
             'transaction_date' => $transaction->transaction_date
                 ? $transaction->transaction_date->format('Y-m-d')
                 : null,

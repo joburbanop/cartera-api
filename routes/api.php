@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Auth\UserController;
 use App\Http\Controllers\Collection\CollectionController;
@@ -7,18 +8,16 @@ use App\Http\Controllers\ContractPaymentPromiseController;
 use App\Http\Controllers\CRM\CustomerController;
 use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Financial\BankAccountController;
-use App\Http\Controllers\ActivityController;
 use App\Http\Controllers\Inventory\LotController;
 use App\Http\Controllers\Inventory\ProjectController;
-use App\Http\Controllers\SearchController;
 use App\Http\Controllers\Sales\AmortizationController;
 use App\Http\Controllers\Sales\ContractController;
 use App\Http\Controllers\Sales\ContractLifeSheetController;
 use App\Http\Controllers\Sales\RefinanceContractController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -37,7 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
-    
+
     Route::get('/lots/archived', [LotController::class, 'archived'])
         ->middleware('permission:lots.manage');
     // Deuda menor: sin permission en la ruta. SearchService ya filtra y
@@ -79,8 +78,6 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
         ->middleware('permission:projects.manage');
     Route::patch('/projects/{project}/activate', [ProjectController::class, 'activate'])
         ->middleware('permission:projects.manage');
-
-
 
     Route::get('/lots', [LotController::class, 'index'])
         ->middleware('permission:lots.view|lots.manage');
@@ -138,6 +135,8 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
         ->middleware(['permission:payments.register|extraordinary-payments.apply', 'throttle:writes']);
     Route::post('/collections/split', [CollectionController::class, 'storeSplit'])
         ->middleware(['permission:payments.register|extraordinary-payments.apply', 'throttle:writes']);
+    Route::post('/collections/residual', [CollectionController::class, 'storeResidual'])
+        ->middleware(['permission:payments.register', 'throttle:writes']);
 
     Route::get('/customers', [CustomerController::class, 'index'])
         ->middleware('permission:customers.manage');
@@ -172,7 +171,6 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     Route::delete('/users/{user}', [UserController::class, 'destroy'])
         ->middleware(['permission:users.manage', 'throttle:writes']);
 
-    
     Route::put('/lots/{lot}', [LotController::class, 'update'])
         ->middleware('permission:lots.manage');
     Route::patch('/lots/{lot}/archive', [LotController::class, 'archive'])
