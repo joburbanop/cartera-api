@@ -146,15 +146,18 @@ class UserService
     }
 
     /**
-     * @return array{id: int, name: string, email: string, roles: list<string>, must_change_password: bool, password_changed_at: string|null, ui_preferences: array{contractTabs: list<string>}}
+     * @return array{id: int, name: string, email: string, roles: list<string>, permissions: list<string>, must_change_password: bool, password_changed_at: string|null, ui_preferences: array{contractTabs: list<string>}}
      */
     public function presentUser(User $user): array
     {
+        $user->loadMissing(['roles', 'permissions']);
+
         return [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
             'roles' => $user->getRoleNames()->values()->all(),
+            'permissions' => $user->getAllPermissions()->pluck('name')->unique()->values()->all(),
             'must_change_password' => (bool) $user->must_change_password,
             'password_changed_at' => $user->password_changed_at?->toIso8601String(),
             'ui_preferences' => $this->presentUiPreferences($user),

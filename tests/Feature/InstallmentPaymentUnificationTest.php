@@ -1,16 +1,13 @@
 <?php
 
-use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
-use App\Enums\PaymentMethod;
-use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
+use App\Services\Collection\CascadeCollectionService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
-use App\Services\Financial\Transaction\RegularPayment\RegularPaymentService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -101,16 +98,10 @@ function unificationContract(string $status = 'activo', int $regularCount = 1): 
 it('acumula dos abonos parciales sucesivos sobre la misma cuota sin resetear quota_debt', function () {
     $contract = unificationContract();
     $installment = $contract->amortizationInstallments()->where('installment_number', 1)->first();
-    $service = app(RegularPaymentService::class);
+    $cascade = app(CascadeCollectionService::class);
+    $asOf = Carbon::parse(now()->toDateString());
 
-    $service->registerRegularPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '300.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::REGULAR_PAYMENT,
-        installmentNumbers: [(int) $installment->id],
-    ));
+    $cascade->process($contract->id, '300.00', null, $asOf, [(int) $installment->id]);
 
     $installment->refresh();
     expect($installment->quota_debt)->toBe('700.00')
@@ -118,20 +109,45 @@ it('acumula dos abonos parciales sucesivos sobre la misma cuota sin resetear quo
         ->and(number_format((float) $installment->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $installment->principal_paid, 2, '.', ''))->toBe('100.00');
 
-    $service->registerRegularPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '200.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::REGULAR_PAYMENT,
-        installmentNumbers: [(int) $installment->id],
-    ));
+    $cascade->process($contract->id, '200.00', null, $asOf, [(int) $installment->id]);
 
     $installment->refresh();
     expect($installment->quota_debt)->toBe('500.00')
         ->and($installment->status)->toBe(AmortizationStatus::PARTIAL)
         ->and(number_format((float) $installment->interest_paid, 2, '.', ''))->toBe('200.00')
         ->and(number_format((float) $installment->principal_paid, 2, '.', ''))->toBe('300.00');
+});
+
+it('un pago exacto no resta dos veces el capital del remaining_balance', function () {
+    $contract = unificationContract();
+    $installment = $contract->amortizationInstallments()->where('installment_number', 1)->first();
+    $installment->update([
+        'installment_value' => '1715402.83',
+        'interest_value' => '771160.00',
+        'principal_value' => '944242.83',
+        'quota_debt' => '1715402.83',
+        'remaining_balance' => '76171757.17',
+        'projected_balance' => '76171757.17',
+        'due_date' => '2025-11-05',
+    ]);
+
+    app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1715402.83',
+        null,
+        Carbon::parse('2025-11-06'),
+        [(int) $installment->id],
+    );
+
+    $installment->refresh();
+
+    expect($installment->remaining_balance)->toBe('76171757.17')
+        ->and($installment->projected_balance)->toBe('76171757.17')
+        ->and($installment->quota_debt)->toBe('0.00')
+        ->and($installment->extra_payment)->toBe('0.00')
+        ->and($installment->status)->toBe(AmortizationStatus::PAID)
+        ->and(number_format((float) $installment->interest_paid, 2, '.', ''))->toBe('771160.00')
+        ->and(number_format((float) $installment->principal_paid, 2, '.', ''))->toBe('944242.83');
 });
 
 it('condona un residual menor a 500 al imputar en cascada', function () {

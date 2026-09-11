@@ -16,6 +16,10 @@ abstract class AbstractExtraordinaryPaymentService
         return bccomp($storedExtra, $surplusAmount, 2) === 0;
     }
 
+    /**
+     * Pega el extra en la cuota y recalcula interés futuro sin acortar plazo.
+     * Lo usa reducir_cuota (PaymentReductionService) vía Cascade.
+     */
     protected function processBasePayment(
         Contract $contract,
         AmortizationInstallment $installment,

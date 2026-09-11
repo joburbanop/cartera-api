@@ -21,8 +21,9 @@ class StoreResidualCollectionRequest extends FormRequest
             'transaction_date' => ['nullable', 'date'],
             'payment_date' => ['nullable', 'date'],
             'payment_method' => ['nullable', PaymentMethod::ruleForNewPayments()],
+            'bank_account_id' => ['nullable', 'integer', 'exists:bank_accounts,id', \Illuminate\Validation\Rule::requiredIf(fn () => strtolower((string) $this->input('payment_method', '')) === 'transfer')],
             'notes' => ['nullable', 'string', 'max:500'],
-            'receipt_number' => ['nullable', 'string', 'max:80'],
+            'receipt_number' => ['required', 'string', 'max:80'],
             'receipt' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];
     }

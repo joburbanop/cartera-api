@@ -12,6 +12,8 @@ use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use App\Services\Residual\ResidualBalanceService;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
 use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
@@ -44,9 +46,13 @@ class CascadeCollectionService
         bool $persistTransaction = true,
         ?int $allocationTransactionId = null,
         ?string $receiptNumber = null,
+        ?int $bankAccountId = null,
     ): array {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction, $allocationTransactionId, $receiptNumber) {
-            $contract = Contract::findOrFail($contractId);
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction, $allocationTransactionId, $receiptNumber, $bankAccountId) {
+            $contract = ContractFinancialLock::acquire($contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            // Recibo duplicado: lo valida la puerta HTTP (PreventaThenCascade /
+            // Split). Aquí no: el par inicial+cascada reutiliza el mismo número.
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
             $appliedInstallments = [];
@@ -68,6 +74,7 @@ class CascadeCollectionService
                     'amount' => $availableAmount,
                     'transaction_date' => $effectiveTransactionDate->toDateString(),
                     'payment_method' => $paymentMethod ?? PaymentMethod::CASH,
+                    'bank_account_id' => $bankAccountId,
                     'notes' => ReceiptNumber::mergeIntoNotes($notes, $normalizedReceipt),
                     'receipt_number' => $normalizedReceipt,
                     'payment_option' => $normalizedPaymentOption,
@@ -90,8 +97,8 @@ class CascadeCollectionService
                 ? $this->allocationRecorder->snapshotRegulars($contract)
                 : [];
 
-            $pendingInstallments = $this->getPendingInstallments($contract, $selectedIds)->values();
-            $injectedCurrent = $this->allocator->unpaidCurrentInstallments($contract)
+            $pendingInstallments = $this->getPendingInstallments($contract, $selectedIds, $effectiveTransactionDate)->values();
+            $injectedCurrent = $this->allocator->unpaidCurrentInstallments($contract, $effectiveTransactionDate)
                 ->filter(fn (AmortizationInstallment $row) => ! in_array((int) $row->id, $selectedIds, true))
                 ->values();
             $totalInstallments = $pendingInstallments->count();
@@ -175,7 +182,7 @@ class CascadeCollectionService
             // corriente estaba "libre" en la rama sin selección.
             $injectedCurrentPaid = $this->lastProcessedInjectedCurrent($injectedCurrent, $processedIds);
             if (
-                $hasExtraordinaryOption
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
                 && ! $hasExplicitSelection
                 && $injectedCurrentPaid
                 && bccomp($availableAmount, '0.00', 2) > 0
@@ -192,11 +199,15 @@ class CascadeCollectionService
                 $availableAmount = '0.00';
             }
 
-            if ($hasExtraordinaryOption && ! $hasExplicitSelection && bccomp($availableAmount, '0.00', 2) > 0) {
-                $implicitTarget = $this->nextNonOverduePendingInstallment(
+            if (
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
+                && ! $hasExplicitSelection
+                && bccomp($availableAmount, '0.00', 2) > 0
+            ) {
+                $implicitTarget = $this->allocator->firstNonOverduePending(
                     $contract,
-                    $processedIds,
                     $effectiveTransactionDate,
+                    $processedIds,
                 );
 
                 if (! $implicitTarget) {
@@ -353,6 +364,15 @@ class CascadeCollectionService
         return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'adelantar_cuotas', 'abono_capital'], true);
     }
 
+    /**
+     * Plazo, cuota y abono a capital pegan el sobrante en la cuota actual.
+     * Adelantar cuotas no: el resto sigue a cascadeToPending (FIFO).
+     */
+    private function sticksSurplusOnCurrent(?string $paymentOption): bool
+    {
+        return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'abono_capital'], true);
+    }
+
     private function normalizePaymentOption(?string $paymentOption): ?string
     {
         if ($paymentOption === null || trim((string) $paymentOption) === '') {
@@ -424,9 +444,9 @@ class CascadeCollectionService
         return '$'.number_format((float) $amount, 0, ',', '.');
     }
 
-    private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds = []): EloquentCollection
+    private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds, Carbon $asOf): EloquentCollection
     {
-        return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds);
+        return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds, $asOf);
     }
 
     /**
@@ -495,29 +515,6 @@ class CascadeCollectionService
 
             break;
         }
-    }
-
-    private function nextNonOverduePendingInstallment(
-        Contract $contract,
-        array $excludeIds,
-        Carbon $transactionDate,
-    ): ?AmortizationInstallment {
-        $query = $contract->amortizationInstallments()
-            ->where('installment_number', '>', 0)
-            ->where('status', '!=', AmortizationStatus::PAID->value)
-            ->where(function ($query) {
-                $query->where('quota_debt', '>', 0)
-                    ->orWhere('remaining_balance', '>', 0);
-            })
-            ->whereDate('due_date', '>=', $transactionDate->toDateString())
-            ->orderBy('due_date', 'asc')
-            ->orderBy('installment_number', 'asc');
-
-        if ($excludeIds !== []) {
-            $query->whereNotIn('id', $excludeIds);
-        }
-
-        return $query->first();
     }
 
     private function normalizeMoney(string $value): string

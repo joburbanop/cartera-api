@@ -115,6 +115,7 @@ function postResidualCollection(int $contractId, string $amount, bool $withRecei
         'contract_id' => $contractId,
         'amount' => $amount,
         'payment_method' => PaymentMethod::TRANSFER->value,
+        'bank_account_id' => test()->bankAccount->id,
         'transaction_date' => '2026-09-09',
     ], $extra);
 
@@ -127,6 +128,12 @@ function postResidualCollection(int $contractId, string $amount, bool $withRecei
 
 beforeEach(function () {
     $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+    $this->bankAccount = \App\Models\BankAccount::query()->create([
+        'bank_name' => 'Bancolombia',
+        'account_number' => '0101010101',
+        'account_type' => 'savings',
+        'holder_name' => 'Constructora QA',
+    ]);
 });
 
 it('cobra FIFO y reduce la última fila si el monto no cierra un corte exacto', function () {
@@ -138,7 +145,7 @@ it('cobra FIFO y reduce la última fila si el monto no cierra un corte exacto', 
         ->get(['id', 'quota_debt', 'status', 'interest_paid', 'principal_paid'])
         ->toArray();
 
-    $response = postResidualCollection($contract->id, '500.00');
+    $response = postResidualCollection($contract->id, '500.00', true, ['receipt_number' => '0448-0449']);
 
     $response->assertCreated()
         ->assertJsonPath('data.amount', '500.00')
@@ -176,7 +183,7 @@ it('cobra el acumulado completo y deja SUM 0', function () {
     $contract = residualCollectionContract();
     seedPendingResiduals($contract, ['200.00', '200.00', '200.00']);
 
-    postResidualCollection($contract->id, '600.00')
+    postResidualCollection($contract->id, '600.00', true, ['receipt_number' => '0448-0449'])
         ->assertCreated()
         ->assertJsonPath('data.pending_residual_balance', '0.00')
         ->assertJsonPath('data.residual_balance_collectible', false);
@@ -192,7 +199,7 @@ it('responde 422 si el monto excede el pendiente', function () {
     $contract = residualCollectionContract();
     seedPendingResiduals($contract, ['200.00', '200.00', '200.00']);
 
-    postResidualCollection($contract->id, '700.00')
+    postResidualCollection($contract->id, '700.00', true, ['receipt_number' => '0448-0449'])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['amount']);
 
@@ -209,11 +216,20 @@ it('responde 422 si falta el recibo', function () {
         ->assertJsonValidationErrors(['receipt']);
 });
 
+it('responde 422 si falta el recibo # en un cobro residual nuevo', function () {
+    $contract = residualCollectionContract();
+    seedPendingResiduals($contract, ['200.00', '200.00', '200.00']);
+
+    postResidualCollection($contract->id, '500.00', true, [
+        'receipt_number' => '',
+    ])->assertStatus(422)->assertJsonValidationErrors(['receipt_number']);
+});
+
 it('responde 422 si el SUM pendiente no llega al umbral de cobro', function () {
     $contract = residualCollectionContract(1);
     seedPendingResiduals($contract, ['256.00']);
 
-    postResidualCollection($contract->id, '256.00')
+    postResidualCollection($contract->id, '256.00', true, ['receipt_number' => '0448-0449'])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['amount']);
 
@@ -224,7 +240,7 @@ it('aparece en la hoja de vida como residuales menores y no crea allocations', f
     $contract = residualCollectionContract();
     seedPendingResiduals($contract, ['250.00', '250.00']);
 
-    postResidualCollection($contract->id, '500.00')->assertCreated();
+    postResidualCollection($contract->id, '500.00', true, ['receipt_number' => '0448-0449'])->assertCreated();
 
     $sheet = app(ContractLifeSheetService::class)->build($contract->fresh());
     $concepts = collect($sheet['payments'] ?? $sheet['rows'] ?? [])

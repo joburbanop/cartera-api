@@ -2,12 +2,43 @@
 
 namespace App\Support;
 
+use App\Enums\TransactionType;
+use App\Models\Transaction;
+use Illuminate\Validation\ValidationException;
+
 /**
  * Número de recibo físico tal como lo usa San Miguel: un token
  * (`0258` o `0258-0289`). Las comas del formulario se normalizan a guion.
  */
 final class ReceiptNumber
 {
+    public const DUPLICATE = 'Este recibo ya existe en este contrato.';
+
+    /**
+     * Un contrato no reutiliza un recibo abierto.
+     * No es índice único: el par preventa+cascada y la reversa copian el mismo número.
+     */
+    public static function assertUnusedOnContract(int $contractId, ?string $receiptNumber): void
+    {
+        $token = self::normalize($receiptNumber);
+        if ($token === null) {
+            return;
+        }
+
+        $exists = Transaction::query()
+            ->where('contract_id', $contractId)
+            ->where('receipt_number', $token)
+            ->whereNull('reversed_at')
+            ->where('transaction_type', '!=', TransactionType::PAYMENT_REVERSAL->value)
+            ->exists();
+
+        if ($exists) {
+            throw ValidationException::withMessages([
+                'receipt_number' => self::DUPLICATE,
+            ]);
+        }
+    }
+
     public static function normalize(?string $value): ?string
     {
         if ($value === null) {

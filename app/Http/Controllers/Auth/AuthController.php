@@ -31,6 +31,7 @@ class AuthController extends Controller
         return $this->successResponse([
             'user' => $authData['user'],
             'roles' => $authData['roles'],
+            'permissions' => $authData['user']['permissions'] ?? [],
             'access_token' => $authData['token'],
             'token_type' => 'Bearer',
         ], 'Inicio de sesión exitoso.');
@@ -43,6 +44,7 @@ class AuthController extends Controller
         return $this->successResponse([
             'user' => $presented,
             'roles' => $presented['roles'],
+            'permissions' => $presented['permissions'],
         ], 'Usuario autenticado.');
     }
 

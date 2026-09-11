@@ -279,14 +279,75 @@ it('persiste payment_option en la transacción y lo proyecta a la bitácora sin 
         ->and($plazo['tx_notes'])->toBeNull();
 });
 
-it('adelantar_cuotas sin selección no hace FIFO: el extra queda en la cuota corriente', function () {
+it('adelantar_cuotas sin selección hace el mismo FIFO que con selección', function () {
     $result = runSurplusOption('adelantar_cuotas', withSelection: false);
 
     file_put_contents('/tmp/surplus-adelantar-sin-seleccion.json', json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
-    expect($result['rows'][0]['status'])->toBe('paid')
-        ->and($result['rows'][0]['extra'])->toBe('1500.00')
-        ->and($result['rows'][1]['status'])->toBe('pending')
-        ->and($result['rows'][1]['debt'])->toBe('1000.00')
-        ->and($result['count'])->toBe(5);
+    expect($result['count'])->toBe(5)
+        ->and($result['rows'][0]['status'])->toBe('paid')
+        ->and((float) $result['rows'][0]['extra'])->toBe(0.0)
+        ->and($result['rows'][1]['status'])->toBe('paid')
+        ->and((float) $result['rows'][1]['extra'])->toBe(0.0)
+        ->and($result['rows'][2]['status'])->toBe('partial')
+        ->and($result['rows'][2]['debt'])->toBe('500.00')
+        ->and($result['rows'][3]['status'])->toBe('pending')
+        ->and($result['rows'][4]['status'])->toBe('pending');
+});
+
+it('adelantar_cuotas explícito sin selección reparte $3.000.000 de sobrante en FIFO, no como extra de la corriente', function () {
+    $contract = surplusFourContract('5M');
+    $contract->update([
+        'sale_price' => 5000000,
+        'term_months' => 4,
+    ]);
+    $contract->amortizationInstallments()->delete();
+
+    foreach ([
+        1 => ['due' => '2026-09-09', 'value' => '2000000.00', 'remaining' => '5000000.00'],
+        2 => ['due' => '2026-10-09', 'value' => '1000000.00', 'remaining' => '3000000.00'],
+        3 => ['due' => '2026-11-09', 'value' => '1000000.00', 'remaining' => '2000000.00'],
+        4 => ['due' => '2026-12-09', 'value' => '1000000.00', 'remaining' => '1000000.00'],
+    ] as $n => $row) {
+        $contract->amortizationInstallments()->create([
+            'contract_id' => $contract->id,
+            'installment_number' => $n,
+            'due_date' => $row['due'],
+            'installment_value' => $row['value'],
+            'principal_value' => $row['value'],
+            'interest_value' => '0.00',
+            'extra_payment' => '0.00',
+            'remaining_balance' => $row['remaining'],
+            'projected_balance' => $row['remaining'],
+            'interest_paid' => '0.00',
+            'principal_paid' => '0.00',
+            'quota_debt' => $row['value'],
+            'status' => AmortizationStatus::PENDING->value,
+        ]);
+    }
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '5000000.00',
+        'adelantar_cuotas',
+        Carbon::parse('2026-09-09'),
+        [],
+    );
+
+    $rows = $contract->fresh()->amortizationInstallments()
+        ->where('installment_number', '>', 0)
+        ->orderBy('installment_number')
+        ->get();
+
+    expect($result['amount_applied'])->toBe('5000000.00')
+        ->and($result['installments'])->toHaveCount(4)
+        ->and($rows[0]->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $rows[0]->extra_payment)->toBe(0.0)
+        ->and((string) $rows[0]->quota_debt)->toBe('0.00')
+        ->and($rows[1]->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $rows[1]->extra_payment)->toBe(0.0)
+        ->and($rows[2]->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $rows[2]->extra_payment)->toBe(0.0)
+        ->and($rows[3]->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $rows[3]->extra_payment)->toBe(0.0);
 });

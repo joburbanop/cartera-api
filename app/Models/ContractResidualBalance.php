@@ -17,6 +17,8 @@ class ContractResidualBalance extends Model
         'status',
         'collected_transaction_id',
         'collected_at',
+        'last_partial_transaction_id',
+        'last_partial_amount',
     ];
 
     protected function casts(): array
@@ -26,6 +28,7 @@ class ContractResidualBalance extends Model
             'status' => ResidualBalanceStatus::class,
             'created_at' => 'datetime',
             'collected_at' => 'datetime',
+            'last_partial_amount' => 'decimal:2',
         ];
     }
 

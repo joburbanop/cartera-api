@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\DTOs\CreateTransactionDTO;
+use App\Enums\PaymentReversalReason;
+use App\Http\Requests\ReversePaymentRequest;
 use App\Http\Requests\StoreTransactionRequest;
+use App\Models\Contract;
 use App\Models\Transaction;
+use App\Services\Collection\PaymentReversalService;
 use App\Services\Financial\Transaction\TransactionService;
 use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
@@ -18,7 +22,8 @@ class TransactionController extends Controller
     use ApiResponse;
 
     public function __construct(
-        private TransactionService $transactionService
+        private TransactionService $transactionService,
+        private PaymentReversalService $paymentReversalService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -55,6 +60,11 @@ class TransactionController extends Controller
 
     public function indexByContract(Request $request, int $contractId): JsonResponse
     {
+        $contract = Contract::query()->findOrFail($contractId);
+        $lastEvent = $this->paymentReversalService->lastCollectionEvent($contract);
+        $lastEventIds = $lastEvent->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $lastEventReversible = $this->paymentReversalService->eventWouldBeReversible($contract, $lastEvent);
+
         $paginator = Transaction::query()
             ->with(['receipt', 'allocations.installment'])
             ->where('contract_id', $contractId)
@@ -74,9 +84,34 @@ class TransactionController extends Controller
                 ? route('transactions.receipt', $transaction->id)
                 : null,
             'allocations' => $this->presentAllocations($transaction),
+            'reversed_at' => $transaction->reversed_at?->format('Y-m-d H:i:s'),
+            'reversal_transaction_id' => $transaction->reversal_transaction_id,
+            'reversal_reason' => $transaction->reversal_reason,
+            'reversal_notes' => $transaction->reversal_notes,
+            'can_reverse' => $lastEventReversible
+                && in_array((int) $transaction->id, $lastEventIds, true),
         ]);
 
         return $this->successResponse($paginator, 'Transacciones del contrato obtenidas exitosamente.');
+    }
+
+    public function reverse(
+        ReversePaymentRequest $request,
+        int $contractId,
+        int $transactionId,
+    ): JsonResponse {
+        $reason = PaymentReversalReason::from((string) $request->validated('reason'));
+        $notes = $request->validated('notes');
+
+        $result = $this->paymentReversalService->reverse(
+            $contractId,
+            $transactionId,
+            $reason,
+            is_string($notes) ? $notes : null,
+            $request->user(),
+        );
+
+        return $this->successResponse($result, 'Pago revertido exitosamente.', 201);
     }
 
     public function store(

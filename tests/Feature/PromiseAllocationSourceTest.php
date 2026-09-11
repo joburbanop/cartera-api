@@ -150,3 +150,58 @@ it('nunca pone also_applied_to y came_from en la misma fila de promesa', functio
         ->and($destSources[0]['came_from'][0]['target_label'])->toBe('Promesa #4')
         ->and($destSources[0]['came_from'][0]['amount'])->toBe('400.00');
 });
+
+it('excluye allocations de una transacción revertida al armar sources de la promesa', function () {
+    $contract = promiseSourceContract();
+    $promise = ContractPaymentPromise::query()->create([
+        'contract_id' => $contract->id,
+        'payment_number' => 1,
+        'expected_date' => '2026-02-05',
+        'expected_amount' => '1000.00',
+        'description' => 'Promesa 1',
+        'is_paid' => false,
+    ]);
+
+    $reversed = Transaction::query()->create([
+        'contract_id' => $contract->id,
+        'transaction_type' => TransactionType::REGULAR_PAYMENT,
+        'amount' => '1000.00',
+        'transaction_date' => '2026-02-06',
+        'payment_method' => PaymentMethod::CASH,
+        'receipt_number' => '8484',
+        'reversed_at' => now(),
+    ]);
+    PaymentPromiseAllocation::query()->create([
+        'transaction_id' => $reversed->id,
+        'payment_promise_id' => $promise->id,
+        'amount' => '1000.00',
+    ]);
+
+    $live = Transaction::query()->create([
+        'contract_id' => $contract->id,
+        'transaction_type' => TransactionType::REGULAR_PAYMENT,
+        'amount' => '1000.00',
+        'transaction_date' => '2026-02-07',
+        'payment_method' => PaymentMethod::CASH,
+        'receipt_number' => '332',
+    ]);
+    PaymentPromiseAllocation::query()->create([
+        'transaction_id' => $live->id,
+        'payment_promise_id' => $promise->id,
+        'amount' => '1000.00',
+    ]);
+
+    $allocs = PaymentPromiseAllocation::query()
+        ->where('payment_promise_id', $promise->id)
+        ->with(['transaction.promiseAllocations.promise', 'transaction.allocations'])
+        ->orderBy('id')
+        ->get();
+
+    $sources = app(AllocationSourcePresenter::class)->forPromise($allocs, (int) $promise->id);
+
+    expect($allocs)->toHaveCount(2)
+        ->and($sources)->toHaveCount(1)
+        ->and($sources[0]['receipt_number'])->toBe('332')
+        ->and($sources[0]['transaction_id'])->toBe($live->id)
+        ->and($sources[0]['amount'])->toBe('1000.00');
+});

@@ -41,6 +41,7 @@ class CollectionController extends Controller
             $dto->receipt,
             $paymentMethod,
             receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
 
         return $this->successResponse(
@@ -72,6 +73,7 @@ class CollectionController extends Controller
             notes: $request->validated('notes'),
             paymentOption: $request->validated('payment_option'),
             receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
 
         return $this->successResponse(
@@ -103,6 +105,7 @@ class CollectionController extends Controller
             paymentMethod: PaymentMethod::tryFrom((string) $request->input('payment_method', '')),
             notes: $request->validated('notes'),
             receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
 
         return $this->successResponse(

@@ -5,7 +5,7 @@ it('usa America/Bogota como zona horaria por defecto', function () {
 });
 
 it('expone SANCTUM_TOKEN_INACTIVITY vía config y no env() suelto', function () {
-    expect(config('sanctum.token_inactivity_minutes'))->toBe(5);
+    expect(config('sanctum.token_inactivity_minutes'))->toBe(120);
 
     $provider = file_get_contents(app_path('Providers/AppServiceProvider.php'));
     expect($provider)->toContain("config('sanctum.token_inactivity_minutes'")

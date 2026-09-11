@@ -186,18 +186,19 @@ it('con dos vencidas, adelantar_cuotas sin seleccion no regenera el plan futuro'
     $fourth->refresh();
 
     expect($result['amount_applied'])->toBe('3500.00')
-        ->and($result['installments'])->toHaveCount(3)
+        ->and($result['installments'])->toHaveCount(4)
         ->and($result['installments'][2]['installment_number'])->toBe(3)
-        ->and($result['installments'][2]['amount_applied'])->toBe('1500.00')
+        ->and($result['installments'][2]['amount_applied'])->toBe('1000.00')
+        ->and($result['installments'][3]['installment_number'])->toBe(4)
+        ->and($result['installments'][3]['amount_applied'])->toBe('500.00')
         ->and($first->status)->toBe(AmortizationStatus::PAID)
         ->and($second->status)->toBe(AmortizationStatus::PAID)
         ->and($third->status)->toBe(AmortizationStatus::PAID)
-        ->and($third->extra_payment)->toBe('500.00')
-        ->and($fourth->status)->toBe(AmortizationStatus::PENDING)
+        ->and((float) $third->extra_payment)->toBe(0.0)
+        ->and($fourth->status)->toBe(AmortizationStatus::PARTIAL)
         ->and($contract->amortizationInstallments()->count())->toBe(4)
-        ->and($fourth->installment_value)->toBe('500.00')
-        ->and($fourth->quota_debt)->toBe('500.00')
-        ->and($fourth->remaining_balance)->toBe('0.00');
+        ->and($fourth->installment_value)->toBe('1000.00')
+        ->and($fourth->quota_debt)->toBe('500.00');
 });
 
 it('si el pago con payment_option solo cubre vencidas no aplica estrategia y no falla', function () {

@@ -357,3 +357,71 @@ it('el extra a capital sale como destino sin número de cuota', function () {
         ->and($capital['amount'])->toBe('500.00')
         ->and($plan->firstWhere('installment_number', 2)->sources)->toHaveCount(0);
 });
+
+it('excluye el pago revertido al armar sources y covered_amount de la cuota', function () {
+    $contract = allocationContract();
+    $cuota = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+
+    $reversed = Transaction::query()->create([
+        'contract_id' => $contract->id,
+        'transaction_type' => TransactionType::REGULAR_PAYMENT,
+        'amount' => '1000.00',
+        'transaction_date' => '2026-02-10',
+        'payment_method' => PaymentMethod::CASH,
+        'receipt_number' => '8484',
+        'reversed_at' => now(),
+    ]);
+    TransactionAllocation::query()->create([
+        'transaction_id' => $reversed->id,
+        'amortization_installment_id' => $cuota->id,
+        'target' => AllocationTarget::INSTALLMENT,
+        'amount' => '1000.00',
+        'principal' => '800.00',
+        'interest' => '200.00',
+    ]);
+
+    $live = Transaction::query()->create([
+        'contract_id' => $contract->id,
+        'transaction_type' => TransactionType::REGULAR_PAYMENT,
+        'amount' => '1000.00',
+        'transaction_date' => '2026-02-11',
+        'payment_method' => PaymentMethod::CASH,
+        'receipt_number' => '332',
+    ]);
+    TransactionAllocation::query()->create([
+        'transaction_id' => $live->id,
+        'amortization_installment_id' => $cuota->id,
+        'target' => AllocationTarget::INSTALLMENT,
+        'amount' => '1000.00',
+        'principal' => '800.00',
+        'interest' => '200.00',
+    ]);
+
+    $cuota->update([
+        'interest_paid' => '200.00',
+        'principal_paid' => '800.00',
+        'quota_debt' => '0.00',
+        'status' => AmortizationStatus::PAID,
+    ]);
+
+    $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
+    $presenter = app(AllocationSourcePresenter::class);
+    $presenter->attachToInstallments($plan);
+
+    $decorated = $plan->firstWhere('installment_number', 1);
+    expect($decorated->sources)->toHaveCount(1)
+        ->and($decorated->sources[0]['receipt_number'])->toBe('332')
+        ->and($decorated->sources[0]['transaction_id'])->toBe($live->id)
+        ->and($decorated->sources[0]['amount'])->toBe('1000.00')
+        ->and($decorated->covered_amount)->toBe('1000.00');
+
+    $mixed = TransactionAllocation::query()
+        ->where('amortization_installment_id', $cuota->id)
+        ->with('transaction')
+        ->orderBy('id')
+        ->get();
+
+    expect($mixed)->toHaveCount(2)
+        ->and($presenter->forInstallment($mixed, (int) $cuota->id))->toHaveCount(1)
+        ->and($presenter->forInstallment($mixed, (int) $cuota->id)[0]['receipt_number'])->toBe('332');
+});

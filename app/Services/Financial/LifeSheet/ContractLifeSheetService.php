@@ -2,6 +2,7 @@
 
 namespace App\Services\Financial\LifeSheet;
 
+use App\Enums\AllocationTarget;
 use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use App\Models\Contract;
@@ -51,8 +52,11 @@ class ContractLifeSheetService
 
         foreach ($this->paymentsOf($contract) as $tx) {
             $amount = $this->money($tx->amount);
-            $collected = bcadd($collected, $amount, 2);
-            $running = bcsub($running, $amount, 2);
+            $affectsRunning = $this->affectsRunningTotal($tx);
+            if ($affectsRunning) {
+                $collected = bcadd($collected, $amount, 2);
+                $running = bcsub($running, $amount, 2);
+            }
             $method = $tx->payment_method instanceof PaymentMethod
                 ? $tx->payment_method
                 : PaymentMethod::tryFrom((string) $tx->payment_method);
@@ -70,6 +74,7 @@ class ContractLifeSheetService
                 'payment_method' => $method?->value,
                 'total_paid' => $collected,
                 'balance' => $running,
+                'affects_running_total' => $affectsRunning,
                 'notes' => $notes !== '' ? $notes : null,
                 'allocations' => $this->allocationsOf($tx),
                 'amortization_application' => $this->amortizationApplication($contract, $tx, $notes),
@@ -278,6 +283,9 @@ class ContractLifeSheetService
     }
 
     /**
+     * Lista lo que se muestra en HV, incluida la trazabilidad de reversas.
+     * El recaudo corrido se decide en {@see affectsRunningTotal()}.
+     *
      * @return list<Transaction>
      */
     private function paymentsOf(Contract $contract): array
@@ -300,7 +308,37 @@ class ContractLifeSheetService
             ->all();
     }
 
+    /**
+     * El par cobro revertido + fila de reversa se anula: no mueve Total Pagado
+     * ni Saldo. Siguen visibles en la tabla para ver que "se pagó y se revirtió".
+     */
+    private function affectsRunningTotal(Transaction $tx): bool
+    {
+        if ($tx->isReversed()) {
+            return false;
+        }
+
+        $type = $tx->transaction_type instanceof TransactionType
+            ? $tx->transaction_type
+            : TransactionType::tryFrom((string) $tx->transaction_type);
+
+        return $type !== TransactionType::PAYMENT_REVERSAL;
+    }
+
     private function conceptFrom(string $notes, Transaction $tx): string
+    {
+        $concept = $this->rawConceptFrom($notes, $tx);
+
+        if ($this->affectsRunningTotal($tx)) {
+            return $concept;
+        }
+
+        return $tx->isReversal()
+            ? $concept.' (no afecta el saldo)'
+            : $concept.' (revertido, no afecta el saldo)';
+    }
+
+    private function rawConceptFrom(string $notes, Transaction $tx): string
     {
         if (preg_match('/Concepto:\s*(.+?)(?:\s*\||$)/u', $notes, $match)) {
             return trim($match[1]);
@@ -314,10 +352,58 @@ class ContractLifeSheetService
             TransactionType::DOWN_PAYMENT => 'CUOTA INICIAL',
             TransactionType::EXTRAORDINARY_PAYMENT => 'ABONO EXTRAORDINARIO',
             TransactionType::DEFERRED_INTEREST => 'INTERÉS DIFERIDO',
-            TransactionType::SPLIT_PAYMENT => 'CUOTA INICIAL + CUOTA',
             TransactionType::RESIDUAL_COLLECTION => 'RESIDUALES MENORES',
-            default => 'PAGO',
+            TransactionType::PAYMENT_REVERSAL => 'REVERSA DE PAGO',
+            default => $this->conceptFromAllocations($tx)
+                ?? ($type === TransactionType::SPLIT_PAYMENT ? 'CUOTA INICIAL + CUOTA' : 'PAGO'),
         };
+    }
+
+    private function conceptFromAllocations(Transaction $tx): ?string
+    {
+        $hasInicial = false;
+        $hasCapital = false;
+        $regulars = [];
+
+        foreach ($tx->allocations as $allocation) {
+            $target = $allocation->target instanceof AllocationTarget
+                ? $allocation->target
+                : AllocationTarget::tryFrom((string) $allocation->target);
+
+            if ($target === AllocationTarget::DOWN_PAYMENT) {
+                $hasInicial = true;
+                continue;
+            }
+
+            if ($target === AllocationTarget::CAPITAL) {
+                $hasCapital = true;
+                continue;
+            }
+
+            if ($target === AllocationTarget::INSTALLMENT) {
+                $number = $allocation->installment
+                    ? (int) $allocation->installment->installment_number
+                    : 0;
+                if ($number > 0) {
+                    $regulars[$number] = $number;
+                }
+            }
+        }
+
+        ksort($regulars);
+        $parts = [];
+        if ($hasInicial) {
+            $parts[] = 'CUOTA INICIAL';
+        }
+        if ($regulars !== []) {
+            $parts[] = 'CUOTA '.implode('-', array_values($regulars));
+        }
+
+        if ($parts !== []) {
+            return implode(' + ', $parts);
+        }
+
+        return $hasCapital ? 'ABONO A CAPITAL' : null;
     }
 
     /**

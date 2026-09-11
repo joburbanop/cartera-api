@@ -43,8 +43,11 @@ it('crea los 3 roles con sus permisos y sin cruces indebidos', function () {
     $administrador = Role::findByName(RoleName::ADMINISTRADOR->value);
     expect($administrador->hasPermissionTo(PermissionName::PROJECTS_MANAGE->value))->toBeTrue();
     expect($administrador->hasPermissionTo(PermissionName::PAYMENTS_REGISTER->value))->toBeTrue();
+    expect($administrador->hasPermissionTo(PermissionName::PAYMENTS_REVERSE->value))->toBeTrue();
     expect($administrador->hasPermissionTo(PermissionName::USERS_MANAGE->value))->toBeFalse();
     expect($administrador->hasPermissionTo(PermissionName::ROLES_MANAGE->value))->toBeFalse();
+
+    expect($socio->hasPermissionTo(PermissionName::PAYMENTS_REVERSE->value))->toBeFalse();
 });
 
 it('responde 401 sin sesión y 403 si el usuario no tiene el permiso', function () {
@@ -142,17 +145,23 @@ it('expone los roles en login y en /me', function () {
     ]);
     $user->assignRole(RoleName::ADMINISTRADOR->value);
 
-    $this->postJson('/api/login', [
+    $login = $this->postJson('/api/login', [
         'email' => 'login.roles@example.com',
         'password' => 'password',
     ])->assertOk()
         ->assertJsonPath('data.roles.0', RoleName::ADMINISTRADOR->value)
         ->assertJsonPath('data.user.roles.0', RoleName::ADMINISTRADOR->value)
-        ->assertJsonStructure(['data' => ['access_token', 'roles', 'user']]);
+        ->assertJsonStructure(['data' => ['access_token', 'roles', 'permissions', 'user']]);
+
+    expect($login->json('data.permissions'))->toContain(PermissionName::PAYMENTS_REVERSE->value)
+        ->and($login->json('data.user.permissions'))->toContain(PermissionName::PAYMENTS_REVERSE->value);
 
     Sanctum::actingAs($user);
 
-    $this->getJson('/api/me')
+    $me = $this->getJson('/api/me')
         ->assertOk()
         ->assertJsonPath('data.roles.0', RoleName::ADMINISTRADOR->value);
+
+    expect($me->json('data.permissions'))->toContain(PermissionName::PAYMENTS_REVERSE->value)
+        ->and($me->json('data.user.permissions'))->toContain(PermissionName::PAYMENTS_REVERSE->value);
 });

@@ -1,15 +1,10 @@
 <?php
 
-use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
 use App\Enums\ContractStatus;
-use App\Enums\PaymentMethod;
-use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
-use App\Services\Financial\Transaction\RegularPayment\RegularPaymentService;
 use App\Services\Financial\Transaction\TransactionService;
-use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
@@ -22,6 +17,10 @@ function createTransactionsTableForSqlite(): void
         $table->decimal('amount', 15, 2);
         $table->date('transaction_date');
         $table->string('payment_method')->default('cash');
+        $table->unsignedBigInteger('bank_account_id')->nullable();
+        $table->string('receipt_number')->nullable();
+        $table->string('notes')->nullable();
+        $table->string('payment_option')->nullable();
         $table->timestamps();
     });
 }
@@ -677,63 +676,13 @@ it('does not reduce the same surplus twice when the installment already reflects
 });
 
 it('does not subtract the scheduled principal twice when an exact payment settles the installment', function () {
-    Schema::create('contracts', function (Blueprint $table) {
-        $table->id();
-        $table->string('contract_number')->unique();
-        $table->string('status')->default('activo');
-        $table->decimal('sale_price', 15, 2)->default(0);
-        $table->decimal('down_payment_pactada', 15, 2)->default(0);
-        $table->integer('term_months')->default(12);
-        $table->decimal('interest_rate', 5, 2)->default(1.00);
-        $table->timestamps();
-        $table->softDeletes();
-    });
-
-    Schema::create('amortization_installments', function (Blueprint $table) {
-        $table->id();
-        $table->unsignedBigInteger('contract_id');
-        $table->integer('installment_number');
-        $table->date('due_date');
-        $table->string('status')->default('pending');
-        $table->decimal('installment_value', 15, 2)->default(0);
-        $table->decimal('extra_payment', 15, 2)->default(0);
-        $table->decimal('interest_value', 15, 2)->default(0);
-        $table->decimal('principal_value', 15, 2)->default(0);
-        $table->decimal('interest_paid', 15, 2)->default(0);
-        $table->decimal('principal_paid', 15, 2)->default(0);
-        $table->decimal('quota_debt', 15, 2)->default(0);
-        $table->decimal('remaining_balance', 15, 2)->default(0);
-        $table->decimal('projected_balance', 15, 2)->default(0);
-        $table->dateTime('payment_date')->nullable();
-        $table->timestamps();
-    });
-
-    Schema::create('transactions', function (Blueprint $table) {
-        $table->id();
-        $table->unsignedBigInteger('contract_id');
-        $table->string('transaction_type');
-        $table->decimal('amount', 15, 2);
-        $table->date('transaction_date');
-        $table->string('payment_method');
-        $table->timestamps();
-    });
-
-    $contract = Contract::query()->create([
-        'contract_number' => 'CTR-EXACT-001',
+    $contract = new Contract([
         'status' => ContractStatus::ACTIVO->value,
-        'sale_price' => '77116000.00',
-        'down_payment_pactada' => '0.00',
-        'term_months' => 12,
-        'interest_rate' => '1.00',
     ]);
 
-    $installment = AmortizationInstallment::query()->create([
-        'contract_id' => $contract->id,
+    $plan = new AmortizationInstallment([
         'installment_number' => 1,
-        'due_date' => '2025-11-05',
-        'payment_date' => null,
         'installment_value' => '1715402.83',
-        'extra_payment' => '0.00',
         'interest_value' => '771160.00',
         'principal_value' => '944242.83',
         'interest_paid' => '0.00',
@@ -742,36 +691,19 @@ it('does not subtract the scheduled principal twice when an exact payment settle
         'remaining_balance' => '76171757.17',
         'projected_balance' => '76171757.17',
         'status' => AmortizationStatus::PENDING->value,
+        'due_date' => '2025-11-05',
     ]);
 
-    $service = app(RegularPaymentService::class);
+    $result = app(TransactionService::class)->calculatePaymentImpactForInstallment(
+        $plan,
+        '1715402.83',
+        $contract,
+    );
 
-    $impact = $service->calculatePaymentImpact($installment, '1715402.83', $contract);
-
-    expect($impact['status'])->toBe(AmortizationStatus::PAID)
-        ->and($impact['quota_debt'])->toBe('0.00')
-        ->and($impact['interest_paid'])->toBe('771160.00')
-        ->and($impact['principal_paid'])->toBe('944242.83')
-        ->and($impact['excedente'])->toBe('0.00');
-
-    $service->registerRegularPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '1715402.83',
-        transactionDate: Carbon::parse('2025-11-06'),
-        paymentMethod: PaymentMethod::TRANSFER,
-        transactionType: TransactionType::REGULAR_PAYMENT,
-        installmentNumbers: [1],
-    ));
-
-    $installment->refresh();
-
-    // El saldo proyectado ya descuenta los 944242.83 de capital de esta cuota; volver a
-    // restarlos dejaría 75227514.34.
-    expect($installment->remaining_balance)->toBe('76171757.17')
-        ->and($installment->projected_balance)->toBe('76171757.17')
-        ->and($installment->quota_debt)->toBe('0.00')
-        ->and($installment->extra_payment)->toBe('0.00')
-        ->and($installment->status)->toBe(AmortizationStatus::PAID)
-        ->and(number_format((float) $installment->interest_paid, 2, '.', ''))->toBe('771160.00')
-        ->and(number_format((float) $installment->principal_paid, 2, '.', ''))->toBe('944242.83');
+    expect($result['status'])->toBe(AmortizationStatus::PAID)
+        ->and($result['quota_debt'])->toBe('0.00')
+        ->and($result['interest_paid'])->toBe('771160.00')
+        ->and($result['principal_paid'])->toBe('944242.83')
+        ->and($result['excedente'])->toBe('0.00')
+        ->and($result['remaining_balance'])->toBe('76171757.17');
 });

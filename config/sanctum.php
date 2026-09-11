@@ -62,7 +62,7 @@ return [
     |
     */
 
-    'token_inactivity_minutes' => (int) env('SANCTUM_TOKEN_INACTIVITY', 5),
+    'token_inactivity_minutes' => (int) env('SANCTUM_TOKEN_INACTIVITY', 120),
 
     /*
     |--------------------------------------------------------------------------

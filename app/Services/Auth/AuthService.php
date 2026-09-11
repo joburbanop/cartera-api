@@ -17,7 +17,7 @@ class AuthService
     ) {}
 
     /**
-     * @return array{user: array{id: int, name: string, email: string, roles: list<string>}, roles: list<string>, token: string}
+     * @return array{user: array{id: int, name: string, email: string, roles: list<string>, permissions: list<string>}, roles: list<string>, token: string}
      */
     public function login(LoginDTO $dto): array
     {

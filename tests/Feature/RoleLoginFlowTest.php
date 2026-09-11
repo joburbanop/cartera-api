@@ -165,6 +165,9 @@ it('loguea administrador y confirma escrituras de negocio y bloqueo de usuarios'
         'contract_id' => $this->contract->id,
         'amount' => 1000000,
         'selected_installments' => [$this->installment->id],
+        'payment_method' => 'transfer',
+        'bank_account_id' => $this->account->id,
+        'receipt_number' => '0258',
     ], $headers)->assertCreated();
 
     $this->getJson('/api/users', $headers)->assertForbidden();

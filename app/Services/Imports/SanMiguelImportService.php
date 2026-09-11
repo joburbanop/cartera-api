@@ -414,6 +414,7 @@ class SanMiguelImportService
             'amount' => $amount,
             'transaction_date' => $payment->date->toDateString(),
             'payment_method' => $payment->paymentMethod,
+            'bank_account_id' => $payment->bankAccountId ?? null,
             'notes' => $combined,
         ]);
     }

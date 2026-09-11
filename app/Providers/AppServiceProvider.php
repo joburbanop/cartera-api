@@ -70,7 +70,7 @@ class AppServiceProvider extends ServiceProvider
 
             // Calculamos el tiempo desde la última petición que hizo el usuario
             $lastActivity = $token->last_used_at ?? $token->created_at;
-            $inactivityLimit = (int) config('sanctum.token_inactivity_minutes', 5);
+            $inactivityLimit = (int) config('sanctum.token_inactivity_minutes', 120);
 
             // Si el tiempo sin actividad supera nuestros 5 minutos...
             if (now()->diffInMinutes($lastActivity) >= $inactivityLimit) {

@@ -86,7 +86,7 @@ En `.env` tienen que quedar **antes** de cachear config:
 - `DB_CONNECTION=pgsql` y credenciales reales
 - `CORS_ALLOWED_ORIGINS=https://cartera.casasylotes.com.co`
 - `LOG_LEVEL=error`
-- `SANCTUM_TOKEN_INACTIVITY=5` (o el valor que quieras; ahora sí sobrevive a `config:cache`)
+- `SANCTUM_TOKEN_INACTIVITY=120` (o el valor que quieras; ahora sí sobrevive a `config:cache`)
 
 ```bash
 php artisan migrate --force

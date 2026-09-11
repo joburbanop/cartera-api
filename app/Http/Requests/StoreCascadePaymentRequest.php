@@ -44,7 +44,8 @@ class StoreCascadePaymentRequest extends FormRequest
             ],
             'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
             'payment_method' => ['nullable', PaymentMethod::ruleForNewPayments()],
-            'receipt_number' => ['nullable', 'string', 'max:80'],
+            'bank_account_id' => ['nullable', 'integer', 'exists:bank_accounts,id', Rule::requiredIf(fn () => strtolower((string) $this->input('payment_method', '')) === 'transfer')],
+            'receipt_number' => ['required', 'string', 'max:80'],
         ];
     }
 

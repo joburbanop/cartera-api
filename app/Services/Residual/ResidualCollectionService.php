@@ -5,10 +5,11 @@ namespace App\Services\Residual;
 use App\Enums\PaymentMethod;
 use App\Enums\ResidualBalanceStatus;
 use App\Enums\TransactionType;
-use App\Models\Contract;
 use App\Models\ContractResidualBalance;
 use App\Models\Receipt;
 use App\Models\Transaction;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
 use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
@@ -49,9 +50,12 @@ class ResidualCollectionService
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
         ?string $receiptNumber = null,
+        ?int $bankAccountId = null,
     ): array {
-        return DB::transaction(function () use ($contractId, $amount, $receipt, $transactionDate, $paymentMethod, $notes, $receiptNumber) {
-            $contract = Contract::query()->findOrFail($contractId);
+        return DB::transaction(function () use ($contractId, $amount, $receipt, $transactionDate, $paymentMethod, $notes, $receiptNumber, $bankAccountId) {
+            $contract = ContractFinancialLock::acquire($contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            ReceiptNumber::assertUnusedOnContract($contract->id, $receiptNumber);
             $toCollect = $this->money($amount);
             $pending = $this->residualBalanceService->pendingSum($contract->id);
 
@@ -82,6 +86,7 @@ class ResidualCollectionService
                 'amount' => $toCollect,
                 'transaction_date' => $date->toDateString(),
                 'payment_method' => $paymentMethod ?? PaymentMethod::CASH,
+                'bank_account_id' => $bankAccountId,
                 'notes' => ReceiptNumber::mergeIntoNotes(
                     $notes ?: 'Cobro de residuales menores acumulados',
                     $normalizedReceipt,
@@ -151,6 +156,8 @@ class ResidualCollectionService
 
             $row->update([
                 'amount' => $this->money(bcsub($rowAmount, $remaining, 2)),
+                'last_partial_transaction_id' => $transactionId,
+                'last_partial_amount' => $remaining,
             ]);
             $partialId = (int) $row->id;
             $remaining = '0.00';

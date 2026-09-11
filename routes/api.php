@@ -123,6 +123,8 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
         ->middleware('permission:transactions.view|payments.register');
     Route::get('/contracts/{contractId}/transactions', [TransactionController::class, 'indexByContract'])
         ->middleware('permission:transactions.view|payments.register');
+    Route::post('/contracts/{contractId}/transactions/{transactionId}/reversal', [TransactionController::class, 'reverse'])
+        ->middleware(['permission:payments.reverse', 'throttle:writes']);
     Route::get('/transactions/{transaction}/receipt', [TransactionController::class, 'receipt'])
         ->name('transactions.receipt')
         ->middleware('permission:transactions.view|payments.register');

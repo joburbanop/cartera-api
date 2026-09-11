@@ -3,11 +3,13 @@
 namespace App\Services\Collection;
 
 use App\Enums\AllocationTarget;
+use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Support\ReceiptNumber;
 use App\Models\PaymentPromiseAllocation;
 use App\Models\Transaction;
 use App\Models\TransactionAllocation;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -24,6 +26,7 @@ class AllocationSourcePresenter
 
         $grouped = TransactionAllocation::query()
             ->whereIn('amortization_installment_id', $ids)
+            ->whereHas('transaction', fn ($query) => $this->constrainLiveCollection($query))
             ->with(['transaction.allocations.installment', 'installment'])
             ->orderBy('id')
             ->get()
@@ -60,7 +63,7 @@ class AllocationSourcePresenter
         return $allocations
             ->map(function (TransactionAllocation $allocation) use ($installmentId) {
                 $tx = $allocation->transaction;
-                if (! $tx instanceof Transaction) {
+                if (! $tx instanceof Transaction || ! $this->isLiveCollection($tx)) {
                     return null;
                 }
 
@@ -95,7 +98,7 @@ class AllocationSourcePresenter
         return $allocations
             ->map(function (PaymentPromiseAllocation $allocation) use ($promiseId) {
                 $tx = $allocation->transaction;
-                if (! $tx instanceof Transaction) {
+                if (! $tx instanceof Transaction || ! $this->isLiveCollection($tx)) {
                     return null;
                 }
 
@@ -282,6 +285,26 @@ class AllocationSourcePresenter
     private function receiptNumber(Transaction $tx): ?string
     {
         return ReceiptNumber::fromStored($tx->receipt_number, $tx->notes);
+    }
+
+    /**
+     * Un cobro revertido (o la fila de reversa) no cubre la cuota/promesa:
+     * el par se anula y solo cuentan las transacciones vivas.
+     */
+    private function isLiveCollection(Transaction $tx): bool
+    {
+        if ($tx->isReversed()) {
+            return false;
+        }
+
+        return ! $tx->isReversal();
+    }
+
+    private function constrainLiveCollection(Builder $query): Builder
+    {
+        return $query
+            ->whereNull('reversed_at')
+            ->where('transaction_type', '!=', TransactionType::PAYMENT_REVERSAL);
     }
 
     /**

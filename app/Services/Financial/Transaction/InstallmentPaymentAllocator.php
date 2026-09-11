@@ -11,7 +11,6 @@ use App\Support\DueDateRules;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Validation\ValidationException;
 
 class InstallmentPaymentAllocator
 {
@@ -36,6 +35,7 @@ class InstallmentPaymentAllocator
         AmortizationInstallment $installment,
         string $paymentAmount,
         ?Contract $contract = null,
+        mixed $asOf = null,
     ): array {
         $paymentAmount = $this->normalizeMoney($paymentAmount);
         $installmentValue = $this->normalizeMoney((string) ($installment->installment_value ?? '0.00'));
@@ -100,7 +100,7 @@ class InstallmentPaymentAllocator
 
         $status = $isPaid
             ? AmortizationStatus::PAID
-            : $this->resolvePartialStatus($installment, $contract);
+            : $this->resolvePartialStatus($installment, $contract, $asOf);
 
         return [
             'applied' => $amountToDebt,
@@ -119,7 +119,7 @@ class InstallmentPaymentAllocator
         ?Contract $contract = null,
     ): array {
         $pendingDebt = $this->pendingDebtOf($installment);
-        $impact = $this->computeImpact($installment, $paymentAmount, $contract ?? $installment->contract);
+        $impact = $this->computeImpact($installment, $paymentAmount, $contract ?? $installment->contract, $paymentDate);
         $statusValue = $impact['status'] instanceof AmortizationStatus
             ? $impact['status']->value
             : (string) $impact['status'];
@@ -214,59 +214,17 @@ class InstallmentPaymentAllocator
         ];
     }
 
-    public function priorUnpaidInstallments(Contract $contract, AmortizationInstallment $target): EloquentCollection
-    {
-        $targetNumber = (int) ($target->installment_number ?? 0);
-
-        return $contract->amortizationInstallments()
-            ->where('installment_number', '>', 0)
-            ->where('installment_number', '<', $targetNumber)
-            ->where('status', '!=', AmortizationStatus::PAID->value)
-            ->where(function ($query) {
-                $query->where('quota_debt', '>', 0)
-                    ->orWhere('status', AmortizationStatus::OVERDUE->value);
-            })
-            ->orderBy('due_date', 'asc')
-            ->orderBy('installment_number', 'asc')
-            ->get();
-    }
-
-    public function settlePriorUnpaidOrFail(
-        Contract $contract,
-        AmortizationInstallment $target,
-        string $amount,
-        Carbon $paymentDate,
-    ): string {
-        $amount = $this->normalizeMoney($amount);
-        $prior = $this->priorUnpaidInstallments($contract, $target);
-        $priorDebt = $this->sumQuotaDebt($prior);
-
-        if (bccomp($priorDebt, '0.00', 2) <= 0) {
-            return $amount;
-        }
-
-        if (bccomp($amount, $priorDebt, 2) < 0) {
-            throw ValidationException::withMessages([
-                'amount' => 'Debe saldar primero las cuotas atrasadas antes de aplicar un abono extraordinario.',
-            ]);
-        }
-
-        $result = $this->cascadeToInstallments($prior, $amount, $paymentDate, $contract);
-
-        return $result['remaining'];
-    }
-
-    public function resolveInstallmentsToProcess(Contract $contract, array $explicitlySelectedIds): EloquentCollection
+    public function resolveInstallmentsToProcess(Contract $contract, array $explicitlySelectedIds, mixed $asOf = null): EloquentCollection
     {
         $selectedIds = array_values(array_unique(array_filter(
             array_map('intval', $explicitlySelectedIds),
             fn (int $id) => $id > 0,
         )));
 
-        $overdue = $this->unpaidOverdueInstallments($contract);
+        $overdue = $this->unpaidOverdueInstallments($contract, $asOf);
         $overdueIds = $overdue->map(fn (AmortizationInstallment $row) => (int) $row->id)->all();
 
-        $current = $this->unpaidCurrentInstallments($contract)
+        $current = $this->unpaidCurrentInstallments($contract, $asOf)
             ->filter(fn (AmortizationInstallment $row) => ! in_array((int) $row->id, $overdueIds, true))
             ->values();
         $currentIds = $current->map(fn (AmortizationInstallment $row) => (int) $row->id)->all();
@@ -297,16 +255,17 @@ class InstallmentPaymentAllocator
     }
 
     /**
-     * Cuota vigente del mes: due_date en el mes calendario de hoy y aún no vencida.
+     * Cuota vigente del mes: due_date en el mes calendario de $asOf
+     * (hoy si no se pasa fecha) y aún no vencida a esa fecha.
      * Misma excepción de preventa que la mora regular.
      */
-    public function unpaidCurrentInstallments(Contract $contract): EloquentCollection
+    public function unpaidCurrentInstallments(Contract $contract, mixed $asOf = null): EloquentCollection
     {
         if ($this->suppressesRegularOverdue($contract)) {
             return new EloquentCollection;
         }
 
-        $today = DueDateRules::asOfDate();
+        $today = DueDateRules::asOfDate($asOf);
         $endOfMonth = Carbon::parse($today)->endOfMonth()->toDateString();
 
         return $contract->amortizationInstallments()
@@ -323,13 +282,13 @@ class InstallmentPaymentAllocator
             ->get();
     }
 
-    public function unpaidOverdueInstallments(Contract $contract): EloquentCollection
+    public function unpaidOverdueInstallments(Contract $contract, mixed $asOf = null): EloquentCollection
     {
         if ($this->suppressesRegularOverdue($contract)) {
             return new EloquentCollection;
         }
 
-        $today = DueDateRules::asOfDate();
+        $today = DueDateRules::asOfDate($asOf);
 
         return $contract->amortizationInstallments()
             ->where('installment_number', '>', 0)
@@ -370,12 +329,41 @@ class InstallmentPaymentAllocator
         return $query->get();
     }
 
+    /**
+     * Primera cuota regular pendiente con due_date >= $asOf.
+     * No es unpaidCurrentInstallments: esa se limita al mes calendario de $asOf.
+     * Aquí cabe la corriente de ese mes o la siguiente futura (sobrante
+     * extraordinario sin selección, cuando Hueco A no inyectó corriente).
+     */
+    public function firstNonOverduePending(
+        Contract $contract,
+        mixed $asOf,
+        array $excludeIds = [],
+    ): ?AmortizationInstallment {
+        $query = $contract->amortizationInstallments()
+            ->where('installment_number', '>', 0)
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->where(function ($query) {
+                $query->where('quota_debt', '>', 0)
+                    ->orWhere('remaining_balance', '>', 0);
+            })
+            ->whereDate('due_date', '>=', DueDateRules::asOfDate($asOf))
+            ->orderBy('due_date', 'asc')
+            ->orderBy('installment_number', 'asc');
+
+        if ($excludeIds !== []) {
+            $query->whereNotIn('id', $excludeIds);
+        }
+
+        return $query->first();
+    }
+
     public function leftoverExceedsTolerance(string $amount): bool
     {
         return FinancialRules::leftoverExceedsAbsorbedSurplus($this->normalizeMoney($amount));
     }
 
-    public function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null): AmortizationStatus
+    public function resolvePartialStatus(AmortizationInstallment $plan, ?Contract $contract = null, mixed $asOf = null): AmortizationStatus
     {
         if ($contract && $contract->status === ContractStatus::PREVENTA_INACTIVA) {
             return AmortizationStatus::PARTIAL;
@@ -387,23 +375,9 @@ class InstallmentPaymentAllocator
             return AmortizationStatus::OVERDUE;
         }
 
-        return DueDateRules::isOverdue($dueDate)
+        return DueDateRules::isOverdue($dueDate, $asOf)
             ? AmortizationStatus::OVERDUE
             : AmortizationStatus::PARTIAL;
-    }
-
-    private function sumQuotaDebt(iterable $installments): string
-    {
-        $total = '0.00';
-
-        foreach ($installments as $installment) {
-            $debt = $this->normalizeMoney((string) ($installment->quota_debt ?? '0.00'));
-            if (bccomp($debt, '0.00', 2) > 0) {
-                $total = $this->normalizeMoney(bcadd($total, $debt, 2));
-            }
-        }
-
-        return $total;
     }
 
     public function suppressesRegularOverdue(Contract $contract): bool

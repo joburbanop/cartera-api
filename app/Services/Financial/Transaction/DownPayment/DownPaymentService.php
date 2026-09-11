@@ -14,6 +14,8 @@ use App\Models\Transaction;
 use App\Services\Collection\TransactionAllocationRecorder;
 use App\Services\Financial\Amortization\AmortizationService;
 use App\Services\Residual\ResidualBalanceService;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
 use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
 use App\Support\ReceiptNumber;
@@ -37,7 +39,9 @@ class DownPaymentService
         }
 
         return DB::transaction(function () use ($dto) {
-            $contract = Contract::findOrFail($dto->contractId);
+            $contract = ContractFinancialLock::acquire($dto->contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            ReceiptNumber::assertUnusedOnContract($contract->id, $dto->receiptNumber);
             $pendingBalance = DownPaymentLedger::pending($contract);
 
             if ($this->residualIsWithinCompletionTolerance($pendingBalance)) {
@@ -59,6 +63,7 @@ class DownPaymentService
                 'amount' => $dto->amount,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
+                'bank_account_id' => $dto->bankAccountId,
                 'notes' => ReceiptNumber::mergeIntoNotes($dto->notes, $receiptNumber),
                 'receipt_number' => $receiptNumber,
             ]);
@@ -107,7 +112,9 @@ class DownPaymentService
         }
 
         return DB::transaction(function () use ($dto) {
-            $contract = Contract::findOrFail($dto->contractId);
+            $contract = ContractFinancialLock::acquire($dto->contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            ReceiptNumber::assertUnusedOnContract($contract->id, $dto->receiptNumber);
             $pendingBalance = DownPaymentLedger::pending($contract);
             $full = $this->normalizeMoney((string) $dto->amount);
 
@@ -129,6 +136,7 @@ class DownPaymentService
                 'amount' => $full,
                 'transaction_date' => $dto->transactionDate,
                 'payment_method' => $dto->paymentMethod,
+                'bank_account_id' => $dto->bankAccountId,
                 'notes' => ReceiptNumber::mergeIntoNotes($dto->notes, $receiptNumber),
                 'receipt_number' => $receiptNumber,
             ]);

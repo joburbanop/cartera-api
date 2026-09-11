@@ -8,7 +8,7 @@ use App\Models\ContractResidualBalance;
 /**
  * Residuales menores que el closer de $500 condonó al cerrar la cuota.
  * Constantes propias: no comparte umbrales con FinancialRules ni con
- * DownPaymentService / RegularPaymentService.
+ * DownPaymentService.
  */
 class ResidualBalanceService
 {

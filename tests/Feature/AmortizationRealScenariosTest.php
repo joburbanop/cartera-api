@@ -118,6 +118,7 @@ class AmortizationRealScenariosTest extends TestCase
             'amount' => '1000000.00',
             'payment_date' => now()->toDateString(),
             'selected_installments' => [$this->installment1->id],
+            'receipt_number' => '0258',
         ]);
 
         $response->assertCreated();
@@ -135,6 +136,7 @@ class AmortizationRealScenariosTest extends TestCase
             'amount' => '400000.00',
             'payment_date' => now()->subDays(2)->toDateString(),
             'selected_installments' => [$this->installment1->id],
+            'receipt_number' => '0258',
         ]);
 
         $firstResponse->assertCreated();
@@ -148,6 +150,7 @@ class AmortizationRealScenariosTest extends TestCase
             'amount' => '600000.00',
             'payment_date' => now()->toDateString(),
             'selected_installments' => [$this->installment1->id],
+            'receipt_number' => '0289',
         ]);
 
         $secondResponse->assertCreated();
@@ -169,6 +172,7 @@ class AmortizationRealScenariosTest extends TestCase
                 $this->installment2->id,
                 $this->installment3->id,
             ],
+            'receipt_number' => '0301',
         ]);
 
         $response->assertCreated();
@@ -196,6 +200,7 @@ class AmortizationRealScenariosTest extends TestCase
                 $this->installment1->id,
                 $this->installment2->id,
             ],
+            'receipt_number' => '0302',
         ]);
 
         $response->assertCreated();
@@ -220,6 +225,7 @@ class AmortizationRealScenariosTest extends TestCase
                 $this->installment1->id,
                 $this->installment2->id,
             ],
+            'receipt_number' => '0303',
         ]);
 
         $response->assertCreated();
@@ -244,6 +250,7 @@ class AmortizationRealScenariosTest extends TestCase
                 $this->initialInstallment->id,
                 $this->installment1->id,
             ],
+            'receipt_number' => '0304',
         ]);
 
         if ($response->status() === 422) {

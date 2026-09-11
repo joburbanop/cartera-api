@@ -1,24 +1,22 @@
 <?php
 
-use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
-use App\Enums\PaymentMethod;
-use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
-use App\Services\Financial\Transaction\RegularPayment\RegularPaymentService;
+use App\Models\Transaction;
+use App\Services\Collection\CascadeCollectionService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
-function surplusCascadeContract(): Contract
+function surplusCascadeContract(array $dueOffsets = [-2, -1, 0]): Contract
 {
     $project = Project::create([
-        'name' => 'Proyecto Regular Surplus',
+        'name' => 'Proyecto Cascade Surplus',
         'description' => 'Proyecto de prueba',
         'location' => 'Bogotá',
         'status' => 'active',
@@ -27,7 +25,7 @@ function surplusCascadeContract(): Contract
     $customer = Customer::create([
         'document_type' => 'CC',
         'document_number' => '1000000099',
-        'name' => 'Cliente Regular Surplus',
+        'name' => 'Cliente Cascade Surplus',
         'phone' => '3000000099',
     ]);
 
@@ -58,11 +56,11 @@ function surplusCascadeContract(): Contract
         'status' => 'activo',
     ]);
 
-    foreach ([1, 2, 3] as $number) {
+    foreach ([1, 2, 3] as $index => $number) {
         $contract->amortizationInstallments()->create([
             'contract_id' => $contract->id,
             'installment_number' => $number,
-            'due_date' => now()->addMonths($number - 2)->toDateString(),
+            'due_date' => now()->addMonths($dueOffsets[$index])->toDateString(),
             'installment_value' => 1000,
             'principal_value' => 800,
             'interest_value' => 200,
@@ -79,52 +77,47 @@ function surplusCascadeContract(): Contract
     return $contract;
 }
 
-it('cascades a regular overpayment onto later pending installments when no extraordinary option is selected', function () {
-    $contract = surplusCascadeContract();
+it('el sobrante sin opción sobre cuotas futuras pide las 4 opciones y no aplica nada', function () {
+    $contract = surplusCascadeContract([-1, 1, 2]);
     $first = $contract->amortizationInstallments()->where('installment_number', 1)->first();
 
-    app(RegularPaymentService::class)->registerRegularPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '2500.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::REGULAR_PAYMENT,
-        installmentNumbers: [(int) $first->id],
-    ));
+    try {
+        app(CascadeCollectionService::class)->process(
+            $contract->id,
+            '2500.00',
+            null,
+            Carbon::parse(now()->toDateString()),
+            [(int) $first->id],
+        );
+        expect(false)->toBeTrue('Se esperaba ValidationException');
+    } catch (ValidationException $e) {
+        expect($e->errors()['payment_option'][0] ?? '')->toBe(CascadeCollectionService::SURPLUS_ACTION_REQUIRED);
+    }
 
     $first->refresh();
     $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
     $third = $contract->amortizationInstallments()->where('installment_number', 3)->first();
 
-    expect($first->status)->toBe(AmortizationStatus::PAID)
-        ->and($first->quota_debt)->toBe('0.00')
-        ->and(number_format((float) $first->interest_paid, 2, '.', ''))->toBe('200.00')
-        ->and(number_format((float) $first->principal_paid, 2, '.', ''))->toBe('800.00')
-        ->and($first->remaining_balance)->toBe('1000.00')
-        ->and($second->status)->toBe(AmortizationStatus::PAID)
-        ->and($second->quota_debt)->toBe('0.00')
-        ->and(number_format((float) $second->interest_paid, 2, '.', ''))->toBe('200.00')
-        ->and(number_format((float) $second->principal_paid, 2, '.', ''))->toBe('800.00')
-        ->and($second->remaining_balance)->toBe('1000.00')
-        ->and($third->status)->toBe(AmortizationStatus::PARTIAL)
-        ->and($third->quota_debt)->toBe('500.00')
-        ->and(number_format((float) $third->interest_paid, 2, '.', ''))->toBe('200.00')
-        ->and(number_format((float) $third->principal_paid, 2, '.', ''))->toBe('300.00')
-        ->and($third->remaining_balance)->toBe('1000.00');
+    expect(Transaction::query()->where('contract_id', $contract->id)->count())->toBe(0)
+        ->and($first->status)->toBe(AmortizationStatus::PENDING)
+        ->and($first->quota_debt)->toBe('1000.00')
+        ->and($second->status)->toBe(AmortizationStatus::PENDING)
+        ->and($second->quota_debt)->toBe('1000.00')
+        ->and($third->status)->toBe(AmortizationStatus::PENDING)
+        ->and($third->quota_debt)->toBe('1000.00');
 });
 
 it('paga la mora seleccionada antes que la corriente inyectada', function () {
     $contract = surplusCascadeContract();
     $first = $contract->amortizationInstallments()->where('installment_number', 1)->first();
 
-    app(RegularPaymentService::class)->registerRegularPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '400.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::REGULAR_PAYMENT,
-        installmentNumbers: [(int) $first->id],
-    ));
+    app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '400.00',
+        null,
+        Carbon::parse(now()->toDateString()),
+        [(int) $first->id],
+    );
 
     $first->refresh();
     $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
@@ -136,7 +129,7 @@ it('paga la mora seleccionada antes que la corriente inyectada', function () {
         ->and(number_format((float) $second->interest_paid, 2, '.', ''))->toBe('0.00');
 });
 
-it('rejects a regular payment when the contract is already fully settled', function () {
+it('rejects a cascade payment when the contract is already fully settled', function () {
     $contract = surplusCascadeContract();
 
     $contract->amortizationInstallments()->update([
@@ -147,17 +140,13 @@ it('rejects a regular payment when the contract is already fully settled', funct
         'payment_date' => now()->toDateString(),
     ]);
 
-    $first = $contract->amortizationInstallments()->where('installment_number', 1)->first();
-
     try {
-        app(RegularPaymentService::class)->registerRegularPayment(new CreateTransactionDTO(
-            contractId: $contract->id,
-            amount: '100.00',
-            transactionDate: Carbon::parse(now()->toDateString()),
-            paymentMethod: PaymentMethod::CASH,
-            transactionType: TransactionType::REGULAR_PAYMENT,
-            installmentNumbers: [(int) $first->id],
-        ));
+        app(CascadeCollectionService::class)->process(
+            $contract->id,
+            '100.00',
+            null,
+            Carbon::parse(now()->toDateString()),
+        );
         expect(false)->toBeTrue('Se esperaba ValidationException');
     } catch (ValidationException $e) {
         expect($e->errors()['amount'][0])->toBe('La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.');
