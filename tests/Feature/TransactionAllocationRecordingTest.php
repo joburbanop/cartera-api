@@ -16,6 +16,7 @@ use App\Models\Transaction;
 use App\Models\TransactionAllocation;
 use App\Services\Collection\AllocationSourcePresenter;
 use App\Services\Collection\CascadeCollectionService;
+use App\Services\Financial\LifeSheet\ContractLifeSheetService;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\PaymentPromiseStatusService;
 use App\Support\DownPaymentLedger;
@@ -104,6 +105,40 @@ function allocationContract(): Contract
     ]);
 
     return $contract;
+}
+
+function closeInitialInstallment(Contract $contract): void
+{
+    $contract->amortizationInstallments()
+        ->where('installment_number', 0)
+        ->update([
+            'interest_paid' => '0.00',
+            'principal_paid' => '2000000.00',
+            'quota_debt' => '0.00',
+            'status' => AmortizationStatus::PAID,
+        ]);
+}
+
+function allocationPromises(Contract $contract): array
+{
+    return [
+        ContractPaymentPromise::query()->create([
+            'contract_id' => $contract->id,
+            'payment_number' => 1,
+            'expected_date' => '2026-02-05',
+            'expected_amount' => '1000.00',
+            'description' => 'Pago 1',
+            'is_paid' => false,
+        ]),
+        ContractPaymentPromise::query()->create([
+            'contract_id' => $contract->id,
+            'payment_number' => 2,
+            'expected_date' => '2026-03-05',
+            'expected_amount' => '1000.00',
+            'description' => 'Pago 2',
+            'is_paid' => false,
+        ]),
+    ];
 }
 
 it('un down_payment escribe allocation a la cuota inicial y el ledger no duplica', function () {
@@ -424,4 +459,137 @@ it('excluye el pago revertido al armar sources y covered_amount de la cuota', fu
     expect($mixed)->toHaveCount(2)
         ->and($presenter->forInstallment($mixed, (int) $cuota->id))->toHaveCount(1)
         ->and($presenter->forInstallment($mixed, (int) $cuota->id)[0]['receipt_number'])->toBe('332');
+});
+
+it('B2+E1: cobro exacto de la primera # la deja pagada, sin capital, y el mismo recibo sale en tabla HV y promesa', function () {
+    Carbon::setTestNow(Carbon::parse('2026-02-10 12:00:00'));
+
+    $contract = allocationContract();
+    closeInitialInstallment($contract);
+    [$promise1, $promise2] = allocationPromises($contract);
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+    $cuota2 = $contract->amortizationInstallments()->where('installment_number', 2)->firstOrFail();
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1000.00',
+        'adelantar_cuotas',
+        Carbon::parse('2026-02-10'),
+        [],
+        null,
+        PaymentMethod::CASH,
+        'Concepto: CUOTA B2',
+        true,
+        null,
+        'B2E1',
+    );
+
+    $tx = Transaction::query()->findOrFail($result['transaction_id']);
+    $cuota1->refresh();
+    $cuota2->refresh();
+
+    expect($cuota1->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $cuota1->quota_debt)->toBe(0.0)
+        ->and($cuota2->status)->not->toBe(AmortizationStatus::PAID)
+        ->and((float) $cuota2->quota_debt)->toBe(1000.0)
+        ->and($tx->allocations)->toHaveCount(1)
+        ->and($tx->allocations->first()->target)->toBe(AllocationTarget::INSTALLMENT)
+        ->and((int) $tx->allocations->first()->amortization_installment_id)->toBe($cuota1->id)
+        ->and($tx->allocations->where('target', AllocationTarget::CAPITAL)->count())->toBe(0);
+
+    $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
+    app(AllocationSourcePresenter::class)->attachToInstallments($plan);
+
+    expect($plan->firstWhere('installment_number', 1)->sources)->toHaveCount(1)
+        ->and($plan->firstWhere('installment_number', 1)->sources[0]['receipt_number'])->toBe('B2E1')
+        ->and((float) $plan->firstWhere('installment_number', 1)->sources[0]['amount'])->toBe(1000.0)
+        ->and($plan->firstWhere('installment_number', 1)->sources[0]['also_applied_to'])->toBe([])
+        ->and($plan->firstWhere('installment_number', 2)->sources)->toHaveCount(0);
+
+    $sheet = app(ContractLifeSheetService::class)->build($contract->fresh());
+    $row = collect($sheet['rows'])->firstWhere('transaction_id', $tx->id);
+
+    expect($row)->not->toBeNull()
+        ->and($row['allocations'])->toHaveCount(1)
+        ->and($row['allocations'][0]['target'])->toBe(AllocationTarget::INSTALLMENT->value)
+        ->and($row['allocations'][0]['installment_number'])->toBe(1)
+        ->and($row['allocations'][0]['amount'])->toBe('1000.00');
+
+    $promiseLinks = PaymentPromiseAllocation::query()->where('transaction_id', $tx->id)->get();
+    $promises = $contract->paymentPromises()->orderBy('payment_number')->get();
+    app(PaymentPromiseStatusService::class)->decorate($contract->fresh(), $promises);
+
+    expect($promiseLinks)->toHaveCount(1)
+        ->and((int) $promiseLinks->first()->payment_promise_id)->toBe($promise1->id)
+        ->and((float) $promiseLinks->first()->amount)->toBe(1000.0)
+        ->and(PaymentPromiseAllocation::query()->where('payment_promise_id', $promise2->id)->count())->toBe(0)
+        ->and($promises->firstWhere('id', $promise1->id)->sources)->toHaveCount(1)
+        ->and($promises->firstWhere('id', $promise2->id)->sources)->toHaveCount(0);
+});
+
+it('B3+E2: cobro mayor a la primera # y menor al plan adelanta sin capital y el recibo cruza las dos #', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-10 12:00:00'));
+
+    $contract = allocationContract();
+    closeInitialInstallment($contract);
+    [$promise1, $promise2] = allocationPromises($contract);
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+    $cuota2 = $contract->amortizationInstallments()->where('installment_number', 2)->firstOrFail();
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1500.00',
+        'adelantar_cuotas',
+        Carbon::parse('2026-04-10'),
+        [],
+        null,
+        PaymentMethod::CASH,
+        'Concepto: CUOTA B3',
+        true,
+        null,
+        'B3E2',
+    );
+
+    $tx = Transaction::query()->findOrFail($result['transaction_id']);
+    $cuota1->refresh();
+    $cuota2->refresh();
+
+    expect($cuota1->status)->toBe(AmortizationStatus::PAID)
+        ->and($cuota2->status)->not->toBe(AmortizationStatus::PAID)
+        ->and((float) $cuota2->quota_debt)->toBe(500.0)
+        ->and($tx->allocations->where('target', AllocationTarget::INSTALLMENT))->toHaveCount(2)
+        ->and($tx->allocations->where('target', AllocationTarget::CAPITAL)->count())->toBe(0)
+        ->and((float) $tx->allocations->sum('amount'))->toBe(1500.0);
+
+    $plan = $contract->amortizationInstallments()->orderBy('installment_number')->get();
+    app(AllocationSourcePresenter::class)->attachToInstallments($plan);
+    $sources1 = $plan->firstWhere('installment_number', 1)->sources;
+    $sources2 = $plan->firstWhere('installment_number', 2)->sources;
+
+    expect($sources1)->toHaveCount(1)
+        ->and($sources2)->toHaveCount(1)
+        ->and($sources1[0]['receipt_number'])->toBe('B3E2')
+        ->and($sources1[0]['also_applied_to'][0]['installment_number'])->toBe(2)
+        ->and($sources1[0]['also_applied_to'][0]['amount'])->toBe('500.00')
+        ->and($sources2[0]['came_from'][0]['installment_number'])->toBe(1)
+        ->and($sources2[0]['came_from'][0]['amount'])->toBe('500.00');
+
+    $sheet = app(ContractLifeSheetService::class)->build($contract->fresh());
+    $row = collect($sheet['rows'])->firstWhere('transaction_id', $tx->id);
+    $destinations = collect($row['allocations'] ?? []);
+
+    expect($destinations)->toHaveCount(2)
+        ->and($destinations->pluck('installment_number')->sort()->values()->all())->toBe([1, 2])
+        ->and($destinations->contains('target', AllocationTarget::CAPITAL->value))->toBeFalse();
+
+    $promiseLinks = PaymentPromiseAllocation::query()
+        ->where('transaction_id', $tx->id)
+        ->orderBy('id')
+        ->get();
+
+    expect($promiseLinks)->toHaveCount(2)
+        ->and((int) $promiseLinks[0]->payment_promise_id)->toBe($promise1->id)
+        ->and((float) $promiseLinks[0]->amount)->toBe(1000.0)
+        ->and((int) $promiseLinks[1]->payment_promise_id)->toBe($promise2->id)
+        ->and((float) $promiseLinks[1]->amount)->toBe(500.0);
 });
