@@ -77,6 +77,26 @@ class ContractController extends Controller
         return $this->successResponse($contracts, 'Lista de contratos obtenida exitosamente.');
     }
 
+    public function archived(Request $request): JsonResponse
+        {
+            $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
+
+            $contracts = Contract::onlyTrashed()
+                ->with([
+                    'customer',
+                    'customers',
+                    'lot',
+                    'lot.project',
+                ])
+                ->latest('deleted_at')
+                ->paginate($perPage);
+
+            return $this->successResponse(
+                $contracts,
+                'Lista de contratos archivados obtenida exitosamente.'
+            );
+        }
+
     public function show(Contract $contract)
     {
         // Cargamos los datos del lote, cliente, proyecto, cuentas del proyecto y transacciones

@@ -255,3 +255,125 @@ it('permite restaurar una preventa inactiva archivada y devuelve el lote a preve
         ->and($fixture['lot']->status)
         ->toBe(LotStatus::PREVENTA);
 });
+
+
+it('rechaza restaurar un contrato rescindido archivado', function () {
+    $fixture = archiveContractFixture([
+        'status' => ContractStatus::RESCINDIDO,
+    ]);
+
+    $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/archive"
+        )
+        ->assertSuccessful();
+
+    $response = $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/restore"
+        );
+
+    $response
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('contract');
+
+    $fixture['contract']->refresh();
+    $fixture['lot']->refresh();
+
+    expect($fixture['contract']->trashed())
+        ->toBeTrue()
+        ->and($fixture['lot']->status)
+        ->toBe(LotStatus::DISPONIBLE);
+});
+
+it('permite restaurar un contrato terminado archivado sin modificar el lote', function () {
+    $fixture = archiveContractFixture([
+        'status' => ContractStatus::TERMINADO,
+    ]);
+
+    $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/archive"
+        )
+        ->assertSuccessful();
+
+    $fixture['lot']->refresh();
+
+    expect($fixture['lot']->status)
+        ->toBe(LotStatus::PREVENTA);
+
+    $response = $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/restore"
+        );
+
+    $response->assertSuccessful();
+
+    $fixture['contract']->refresh();
+    $fixture['lot']->refresh();
+
+    expect($fixture['contract']->trashed())
+        ->toBeFalse()
+        ->and($fixture['lot']->status)
+        ->toBe(LotStatus::PREVENTA);
+});
+
+it('rechaza restaurar una preventa si su lote ya no está disponible', function () {
+    $fixture = archiveContractFixture();
+
+    $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/archive"
+        )
+        ->assertSuccessful();
+
+    $fixture['lot']->refresh();
+
+    expect($fixture['lot']->status)
+        ->toBe(LotStatus::DISPONIBLE);
+
+    $fixture['lot']->update([
+        'status' => LotStatus::PREVENTA,
+    ]);
+
+    $response = $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/restore"
+        );
+
+    $response
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('lot_id');
+
+    $fixture['contract']->refresh();
+
+    expect($fixture['contract']->trashed())
+        ->toBeTrue();
+});
+
+it('rechaza restaurar un contrato que no está archivado', function () {
+    $fixture = archiveContractFixture([
+        'status' => ContractStatus::ACTIVO,
+    ]);
+
+    $response = $this
+        ->actingAs($fixture['user'])
+        ->patchJson(
+            "/api/contracts/{$fixture['contract']->id}/restore"
+        );
+
+    $response
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('contract');
+
+    $fixture['contract']->refresh();
+
+    expect($fixture['contract']->trashed())
+        ->toBeFalse();
+});

@@ -196,113 +196,154 @@ class ContractService
         });
     }
 
-    /**
-     * @param array{
-     *     contract_number?: string|null,
-     *     customer?: string|null,
-     *     project_id?: int|string|null,
-     *     lot_number?: string|null,
-     *     status?: string|null,
-     *     cartera?: string|null,
-     *     start_date_from?: string|null,
-     *     start_date_to?: string|null
-     * } $filters
-     */
-    public function getAllContracts(int $perPage = 15, ?int $lotId = null, array $filters = [])
-    {
-        $relations = ['customer', 'customers', 'lot'];
+  /**
+ * @param array{
+ *     contract_number?: string|null,
+ *     customer?: string|null,
+ *     project_id?: int|string|null,
+ *     lot_number?: string|null,
+ *     status?: string|null,
+ *     cartera?: string|null,
+ *     start_date_from?: string|null,
+ *     start_date_to?: string|null
+ * } $filters
+ */
+public function getAllContracts(
+    int $perPage = 15,
+    ?int $lotId = null,
+    array $filters = []
+) {
+    $relations = ['customer', 'customers', 'lot'];
 
-        if ($lotId !== null) {
-            $relations[] = 'transactions';
-        }
-
-        $query = Contract::with($relations)->latest();
-
-        if ($lotId !== null) {
-            $query->where('lot_id', $lotId);
-        }
-
-        $contractNumber = trim((string) ($filters['contract_number'] ?? ''));
-
-        if ($contractNumber !== '') {
-            $query->where(function (Builder $builder) use ($contractNumber) {
-                $builder->where('contract_number', $contractNumber)
-                    ->orWhere('contract_number', 'like', '%'.$contractNumber.'%');
-            });
-        }
-
-        $customer = trim((string) ($filters['customer'] ?? ''));
-
-        if ($customer !== '') {
-            $like = '%'.$customer.'%';
-
-            $query->where(function (Builder $builder) use ($like) {
-                $builder
-                    ->whereHas('customer', function (Builder $holder) use ($like) {
-                        $holder
-                            ->where('customers.name', 'like', $like)
-                            ->orWhere('customers.document_number', 'like', $like);
-                    })
-                    ->orWhereHas('customers', function (Builder $holders) use ($like) {
-                        $holders
-                            ->where('customers.name', 'like', $like)
-                            ->orWhere('customers.document_number', 'like', $like);
-                    });
-            });
-        }
-
-        $projectId = isset($filters['project_id']) ? (int) $filters['project_id'] : 0;
-
-        if ($projectId > 0) {
-            $query->whereHas('lot', fn (Builder $lot) => $lot->where('lots.project_id', $projectId));
-        }
-
-        $lotNumber = trim((string) ($filters['lot_number'] ?? ''));
-
-        if ($lotNumber !== '') {
-            $query->whereHas('lot', function (Builder $lot) use ($lotNumber) {
-                $lot->where(function (Builder $builder) use ($lotNumber) {
-                    $builder->where('lots.number', $lotNumber)
-                        ->orWhere('lots.number', 'like', '%'.$lotNumber.'%');
-                });
-            });
-        }
-
-        $status = trim((string) ($filters['status'] ?? ''));
-
-        if ($status !== '' && ContractStatus::tryFrom($status)) {
-            $query->where('status', $status);
-        }
-
-        $cartera = trim((string) ($filters['cartera'] ?? ''));
-
-        if ($cartera === 'mora') {
-            $query->whereHas(
-                'installments',
-                fn (Builder $installments) => $this->overdueInstallments($installments)
-            );
-        } elseif ($cartera === 'al_dia') {
-            $query->whereDoesntHave(
-                'installments',
-                fn (Builder $installments) => $this->overdueInstallments($installments)
-            );
-        }
-
-        $from = $this->validDate($filters['start_date_from'] ?? null);
-
-        if ($from !== null) {
-            $query->whereDate('start_date', '>=', $from);
-        }
-
-        $to = $this->validDate($filters['start_date_to'] ?? null);
-
-        if ($to !== null) {
-            $query->whereDate('start_date', '<=', $to);
-        }
-
-        return $query->paginate($perPage);
+    if ($lotId !== null) {
+        $relations[] = 'transactions';
     }
 
+    $query = Contract::with($relations)
+        ->withExists([
+            'transactions as has_transactions',
+            'installments as has_paid_installments' => function (Builder $query) {
+                $query->where(function (Builder $query) {
+                    $query
+                        ->whereNotNull('payment_date')
+                        ->orWhereNotNull('receipt_number')
+                        ->orWhere('interest_paid', '>', 0)
+                        ->orWhere('principal_paid', '>', 0)
+                        ->orWhere('extra_payment', '>', 0);
+                });
+            },
+        ])
+        ->latest();
+
+    if ($lotId !== null) {
+        $query->where('lot_id', $lotId);
+    }
+
+    $contractNumber = trim((string) ($filters['contract_number'] ?? ''));
+
+    if ($contractNumber !== '') {
+        $query->where(function (Builder $builder) use ($contractNumber) {
+            $builder
+                ->where('contract_number', $contractNumber)
+                ->orWhere('contract_number', 'like', '%'.$contractNumber.'%');
+        });
+    }
+
+    $customer = trim((string) ($filters['customer'] ?? ''));
+
+    if ($customer !== '') {
+        $like = '%'.$customer.'%';
+
+        $query->where(function (Builder $builder) use ($like) {
+            $builder
+                ->whereHas('customer', function (Builder $holder) use ($like) {
+                    $holder
+                        ->where('customers.name', 'like', $like)
+                        ->orWhere('customers.document_number', 'like', $like);
+                })
+                ->orWhereHas('customers', function (Builder $holders) use ($like) {
+                    $holders
+                        ->where('customers.name', 'like', $like)
+                        ->orWhere('customers.document_number', 'like', $like);
+                });
+        });
+    }
+
+    $projectId = isset($filters['project_id'])
+        ? (int) $filters['project_id']
+        : 0;
+
+    if ($projectId > 0) {
+        $query->whereHas(
+            'lot',
+            fn (Builder $lot) =>
+                $lot->where('lots.project_id', $projectId)
+        );
+    }
+
+    $lotNumber = trim((string) ($filters['lot_number'] ?? ''));
+
+    if ($lotNumber !== '') {
+        $query->whereHas('lot', function (Builder $lot) use ($lotNumber) {
+            $lot->where(function (Builder $builder) use ($lotNumber) {
+                $builder
+                    ->where('lots.number', $lotNumber)
+                    ->orWhere('lots.number', 'like', '%'.$lotNumber.'%');
+            });
+        });
+    }
+
+    $status = trim((string) ($filters['status'] ?? ''));
+
+    if ($status !== '' && ContractStatus::tryFrom($status)) {
+        $query->where('status', $status);
+    }
+
+    $cartera = trim((string) ($filters['cartera'] ?? ''));
+
+    if ($cartera === 'mora') {
+        $query->whereHas(
+            'installments',
+            fn (Builder $installments) =>
+                $this->overdueInstallments($installments)
+        );
+    } elseif ($cartera === 'al_dia') {
+        $query->whereDoesntHave(
+            'installments',
+            fn (Builder $installments) =>
+                $this->overdueInstallments($installments)
+        );
+    }
+
+    $from = $this->validDate($filters['start_date_from'] ?? null);
+
+    if ($from !== null) {
+        $query->whereDate('start_date', '>=', $from);
+    }
+
+    $to = $this->validDate($filters['start_date_to'] ?? null);
+
+    if ($to !== null) {
+        $query->whereDate('start_date', '<=', $to);
+    }
+
+    $paginator = $query->paginate($perPage);
+
+    $paginator->getCollection()->transform(function (Contract $contract) {
+        $contract->has_financial_activity =
+            (bool) $contract->has_transactions ||
+            (bool) $contract->has_paid_installments;
+
+        unset(
+            $contract->has_transactions,
+            $contract->has_paid_installments
+        );
+
+        return $contract;
+    });
+
+    return $paginator;
+}
     private function overdueInstallments(Builder $query): Builder
     {
         return $query

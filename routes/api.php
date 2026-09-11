@@ -171,10 +171,19 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
     Route::get('/customers/{customer}', [CustomerController::class, 'show'])
         ->middleware('permission:customers.manage');
 
+    Route::get('/bank-accounts/archived', [BankAccountController::class, 'archived'])
+        ->middleware('permission:bank-accounts.manage');
     Route::get('/bank-accounts', [BankAccountController::class, 'index'])
         ->middleware('permission:bank-accounts.manage');
     Route::post('/bank-accounts', [BankAccountController::class, 'store'])
         ->middleware('permission:bank-accounts.manage');
+    Route::put('/bank-accounts/{bankAccount}',[BankAccountController::class, 'update'])
+        ->middleware('permission:bank-accounts.manage');
+    Route::patch('/bank-accounts/{bankAccount}/archive', [BankAccountController::class, 'archive'])
+        ->middleware('permission:bank-accounts.manage');
+    Route::patch('/bank-accounts/{bankAccount}/restore', [BankAccountController::class, 'restore'])
+        ->middleware('permission:bank-accounts.manage');
+
 
     Route::get('/users', [UserController::class, 'index'])
         ->middleware('permission:users.manage');

@@ -8,6 +8,9 @@ use App\DTOs\CreateBankAccountDTO;
 use App\Services\Financial\BankAccountService;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
+use App\Http\Requests\UpdateBankAccountRequest;
+use App\DTOs\UpdateBankAccountDTO;
+use App\Models\BankAccount;
 
 class BankAccountController extends Controller
 {
@@ -32,5 +35,61 @@ class BankAccountController extends Controller
         $bankAccounts = $this->bankAccountService->getAllBankAccounts();
 
         return $this->successResponse($bankAccounts, 'Lista de cuentas bancarias obtenida exitosamente.');
+    }
+    public function update(
+        UpdateBankAccountRequest $request,
+        BankAccount $bankAccount
+    ): JsonResponse {
+        $dto = UpdateBankAccountDTO::fromRequest($request);
+
+        $bankAccount = $this->bankAccountService->updateBankAccount(
+            $bankAccount,
+            $dto,
+            $request->user()->id
+        );
+
+        return $this->successResponse(
+            $bankAccount,
+            'Cuenta bancaria actualizada exitosamente.'
+        );
+    }
+    public function archive(
+        BankAccount $bankAccount
+    ): JsonResponse {
+        $this->bankAccountService->archiveBankAccount(
+            $bankAccount,
+            auth()->id()
+        );
+
+        return $this->successResponse(
+            null,
+            'Cuenta bancaria archivada exitosamente.'
+        );
+    }
+
+    public function restore(
+        int $bankAccount
+    ): JsonResponse {
+        $bankAccountModel = BankAccount::withTrashed()->findOrFail($bankAccount);
+
+        $bankAccount = $this->bankAccountService->restoreBankAccount(
+            $bankAccountModel,
+            auth()->id()
+        );
+
+        return $this->successResponse(
+            $bankAccount,
+            'Cuenta bancaria restaurada exitosamente.'
+        );
+    }
+
+    public function archived(): JsonResponse
+    {
+        $bankAccounts = $this->bankAccountService->getArchivedBankAccounts();
+
+        return $this->successResponse(
+            $bankAccounts,
+            'Lista de cuentas bancarias archivadas obtenida exitosamente.'
+        );
     }
 }
