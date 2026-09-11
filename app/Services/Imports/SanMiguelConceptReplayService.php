@@ -865,6 +865,7 @@ class SanMiguelConceptReplayService
                 'interest_paid' => '0.00',
                 'principal_paid' => '0.00',
                 'extra_payment' => '0.00',
+                'remaining_balance' => '0.00',
             ];
         }
 
@@ -878,6 +879,7 @@ class SanMiguelConceptReplayService
             'interest_paid' => $this->money($row->interest_paid),
             'principal_paid' => $this->money($row->principal_paid),
             'extra_payment' => $this->money($row->extra_payment),
+            'remaining_balance' => $this->money($row->remaining_balance),
         ];
     }
 

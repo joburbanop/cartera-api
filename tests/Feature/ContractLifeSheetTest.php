@@ -249,6 +249,62 @@ class ContractLifeSheetTest extends TestCase
             ->assertJsonPath('data.rows.0.occidente', '500000.00');
     }
 
+    public function test_leftover_de_inicial_aplicado_a_mora_muestra_la_cuota_destino(): void
+    {
+        $inicial = $this->createInstallment(0, '10519600.00', '10519600.00', 'paid');
+        $cuota1 = $this->createInstallment(1, '2106024.23', '250400.00', 'partial');
+
+        $toInicial = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::DOWN_PAYMENT,
+            'amount' => '9269600.00',
+            'transaction_date' => '2025-11-14',
+            'payment_method' => PaymentMethod::TRANSFER,
+            'notes' => 'Recibo #0448 | Concepto: CUOTA INICIAL',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $toInicial->id,
+            'target' => AllocationTarget::DOWN_PAYMENT,
+            'amortization_installment_id' => $inicial->id,
+            'amount' => '9269600.00',
+            'principal' => '9269600.00',
+            'interest' => '0.00',
+        ]);
+
+        $leftover = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::DOWN_PAYMENT,
+            'amount' => '250400.00',
+            'transaction_date' => '2025-11-14',
+            'payment_method' => PaymentMethod::TRANSFER,
+            'notes' => 'Recibo #0448 | Concepto: CUOTA INICIAL',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $leftover->id,
+            'target' => AllocationTarget::INSTALLMENT,
+            'amortization_installment_id' => $cuota1->id,
+            'amount' => '250400.00',
+            'principal' => '0.00',
+            'interest' => '250400.00',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $leftover->id,
+            'target' => AllocationTarget::DOWN_PAYMENT,
+            'amortization_installment_id' => $inicial->id,
+            'amount' => '0.00',
+            'principal' => '0.00',
+            'interest' => '0.00',
+        ]);
+
+        $this->getJson("/api/contracts/{$this->contract->id}/life-sheet")
+            ->assertOk()
+            ->assertJsonPath('data.rows.0.concept', 'CUOTA INICIAL')
+            ->assertJsonPath('data.rows.0.amount', '9269600.00')
+            ->assertJsonPath('data.rows.1.concept', 'CUOTA 1')
+            ->assertJsonPath('data.rows.1.amount', '250400.00')
+            ->assertJsonPath('data.rows.1.receipt_number', '0448');
+    }
+
     public function test_pago_nuevo_con_allocations_usa_cuota_y_rango(): void
     {
         $seven = $this->createInstallment(7, '2000000.00', '0.00', 'paid');

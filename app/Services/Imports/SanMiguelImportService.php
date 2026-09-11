@@ -371,9 +371,9 @@ class SanMiguelImportService
             $this->cascadeCollectionService->process(
                 $contract->id,
                 $amount,
-                // El Excel solo marca reducir_plazo en ABONO EXTRA. El resto
-                // venía sin acción: el FIFO de siempre, ahora explícito.
-                $payment->collectionOption ?? 'adelantar_cuotas',
+                // Sin opción en el Excel: Hueco B. El sobrante queda en la
+                // corriente (abono_capital), no adelanta FIFO.
+                $payment->collectionOption ?? 'abono_capital',
                 $payment->date,
                 [],
                 null,

@@ -8,6 +8,7 @@ use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Transaction;
 use App\Services\Financial\Amortization\AmortizationCalculationService;
+use App\Support\FinancialRules;
 use App\Support\ReceiptNumber;
 use App\Services\Financial\Refinancing\AcuerdoPagoService;
 use App\Services\Financial\Refinancing\RefinanceContractService;
@@ -340,8 +341,21 @@ class ContractLifeSheetService
 
     private function rawConceptFrom(string $notes, Transaction $tx): string
     {
+        $fromNotes = null;
         if (preg_match('/Concepto:\s*(.+?)(?:\s*\||$)/u', $notes, $match)) {
-            return trim($match[1]);
+            $fromNotes = trim($match[1]);
+        }
+
+        $fromAllocations = $this->conceptFromAllocations($tx);
+        if ($this->notesClaimInicial($fromNotes)
+            && $fromAllocations !== null
+            && ! str_contains(mb_strtoupper($fromAllocations), 'INICIAL')
+        ) {
+            return $fromAllocations;
+        }
+
+        if ($fromNotes !== null && $fromNotes !== '') {
+            return $fromNotes;
         }
 
         $type = $tx->transaction_type instanceof TransactionType
@@ -354,9 +368,27 @@ class ContractLifeSheetService
             TransactionType::DEFERRED_INTEREST => 'INTERÉS DIFERIDO',
             TransactionType::RESIDUAL_COLLECTION => 'RESIDUALES MENORES',
             TransactionType::PAYMENT_REVERSAL => 'REVERSA DE PAGO',
-            default => $this->conceptFromAllocations($tx)
+            default => $fromAllocations
                 ?? ($type === TransactionType::SPLIT_PAYMENT ? 'CUOTA INICIAL + CUOTA' : 'PAGO'),
         };
+    }
+
+    private function notesClaimInicial(?string $fromNotes): bool
+    {
+        if ($fromNotes === null || $fromNotes === '') {
+            return false;
+        }
+
+        $upper = mb_strtoupper($fromNotes);
+
+        return $upper === 'CUOTA INICIAL'
+            || $upper === 'INICIAL'
+            || str_starts_with($upper, 'CUOTA INICIAL');
+    }
+
+    private function isMaterialAllocationAmount(mixed $amount): bool
+    {
+        return FinancialRules::leftoverExceedsAbsorbedSurplus($this->money($amount));
     }
 
     private function conceptFromAllocations(Transaction $tx): ?string
@@ -366,6 +398,10 @@ class ContractLifeSheetService
         $regulars = [];
 
         foreach ($tx->allocations as $allocation) {
+            if (! $this->isMaterialAllocationAmount($allocation->amount)) {
+                continue;
+            }
+
             $target = $allocation->target instanceof AllocationTarget
                 ? $allocation->target
                 : AllocationTarget::tryFrom((string) $allocation->target);
