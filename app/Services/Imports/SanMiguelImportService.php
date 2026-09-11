@@ -36,6 +36,7 @@ class SanMiguelImportService
     public function __construct(
         private readonly SanMiguelWorkbookParser $parser,
         private readonly SanMiguelLifeSheetParser $lifeSheetParser,
+        private readonly SanMiguelLifeSheetLocator $lifeSheetLocator,
         private readonly ContractService $contractService,
         private readonly DownPaymentService $downPaymentService,
         private readonly CascadeCollectionService $cascadeCollectionService,
@@ -55,8 +56,8 @@ class SanMiguelImportService
         }
 
         // Las hojas de vida viven junto al libro de amortización, un archivo por
-        // rango de diez lotes. Son la fuente de los pagos reales.
-        $lifeSheetFiles = $this->lifeSheetParser->discover(dirname($path));
+        // rango de diez lotes. El locator también mira app/Imports (Linux).
+        $lifeSheetFiles = $this->lifeSheetLocator->discoverFiles($path);
         $lifeSheets = $this->lifeSheetParser->parse($lifeSheetFiles);
 
         $lots = $this->parser->parse($path, $lifeSheets);
