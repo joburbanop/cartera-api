@@ -14,5 +14,8 @@ enum TransactionType: string
     case SPLIT_PAYMENT = 'pago_mixto';
     /** Pago del saldo diferido de interés (fuera del plan; no toca cuotas). */
     case DEFERRED_INTEREST = 'interes_diferido';
+    /** Cobro del acumulado de residuales menores (fuera del plan; no toca cuotas). */
+    case RESIDUAL_COLLECTION = 'residual_collection';
     case REFUND = 'refund';
+    case PAYMENT_REVERSAL = 'payment_reversal';
 }

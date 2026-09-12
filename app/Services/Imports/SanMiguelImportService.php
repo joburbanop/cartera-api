@@ -36,9 +36,11 @@ class SanMiguelImportService
     public function __construct(
         private readonly SanMiguelWorkbookParser $parser,
         private readonly SanMiguelLifeSheetParser $lifeSheetParser,
+        private readonly SanMiguelLifeSheetLocator $lifeSheetLocator,
         private readonly ContractService $contractService,
         private readonly DownPaymentService $downPaymentService,
         private readonly CascadeCollectionService $cascadeCollectionService,
+        private readonly SanMiguelConceptReplayService $conceptReplayService,
         private readonly SanMiguelWipeService $wipeService,
         private readonly SanMiguelHistoricalFinalizeService $historicalFinalizeService,
     ) {}
@@ -54,8 +56,8 @@ class SanMiguelImportService
         }
 
         // Las hojas de vida viven junto al libro de amortización, un archivo por
-        // rango de diez lotes. Son la fuente de los pagos reales.
-        $lifeSheetFiles = $this->lifeSheetParser->discover(dirname($path));
+        // rango de diez lotes. El locator también mira app/Imports (Linux).
+        $lifeSheetFiles = $this->lifeSheetLocator->discoverFiles($path);
         $lifeSheets = $this->lifeSheetParser->parse($lifeSheetFiles);
 
         $lots = $this->parser->parse($path, $lifeSheets);
@@ -339,12 +341,9 @@ class SanMiguelImportService
             return;
         }
 
-        $toInicial = bccomp($payment->amount, $pending, 2) === 1 ? $pending : $payment->amount;
-        $remainder = bcsub($payment->amount, $toInicial, 2);
-
-        $this->downPaymentService->registerDownPayment(new CreateTransactionDTO(
+        $registered = $this->downPaymentService->registerInicialReceipt(new CreateTransactionDTO(
             contractId: $contract->id,
-            amount: $toInicial,
+            amount: $payment->amount,
             transactionDate: $payment->date,
             paymentMethod: $payment->paymentMethod,
             transactionType: TransactionType::DOWN_PAYMENT,
@@ -352,8 +351,13 @@ class SanMiguelImportService
             notes: $notes,
         ));
 
-        if (bccomp($remainder, '0.00', 2) === 1) {
-            $this->applyCascadePayment($contract, $payment, $remainder, $notes);
+        if (bccomp($registered['overage'], '0.00', 2) === 1) {
+            $this->conceptReplayService->applyInicialOverage(
+                $contract->fresh(),
+                $registered['transaction'],
+                $registered['overage'],
+                $payment->date->copy()->startOfDay(),
+            );
         }
     }
 
@@ -367,9 +371,9 @@ class SanMiguelImportService
             $this->cascadeCollectionService->process(
                 $contract->id,
                 $amount,
-                // El Excel solo marca reducir_plazo en ABONO EXTRA. El resto
-                // venía sin acción: el FIFO de siempre, ahora explícito.
-                $payment->collectionOption ?? 'adelantar_cuotas',
+                // Sin opción en el Excel: Hueco B. El sobrante queda en la
+                // corriente (abono_capital), no adelanta FIFO.
+                $payment->collectionOption ?? 'abono_capital',
                 $payment->date,
                 [],
                 null,
@@ -411,6 +415,7 @@ class SanMiguelImportService
             'amount' => $amount,
             'transaction_date' => $payment->date->toDateString(),
             'payment_method' => $payment->paymentMethod,
+            'bank_account_id' => $payment->bankAccountId ?? null,
             'notes' => $combined,
         ]);
     }

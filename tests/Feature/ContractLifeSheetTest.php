@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AllocationTarget;
 use App\Enums\PaymentMethod;
 use App\Enums\RoleName;
 use App\Enums\TransactionType;
@@ -12,6 +13,7 @@ use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
 use App\Models\Transaction;
+use App\Models\TransactionAllocation;
 use App\Services\Financial\Amortization\AmortizationCalculationService;
 use App\Services\Financial\LifeSheet\ContractLifeSheetService;
 use App\Services\Financial\Refinancing\AcuerdoPagoService;
@@ -247,6 +249,95 @@ class ContractLifeSheetTest extends TestCase
             ->assertJsonPath('data.rows.0.occidente', '500000.00');
     }
 
+    public function test_leftover_de_inicial_aplicado_a_mora_muestra_la_cuota_destino(): void
+    {
+        $inicial = $this->createInstallment(0, '10519600.00', '10519600.00', 'paid');
+        $cuota1 = $this->createInstallment(1, '2106024.23', '250400.00', 'partial');
+
+        $toInicial = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::DOWN_PAYMENT,
+            'amount' => '9269600.00',
+            'transaction_date' => '2025-11-14',
+            'payment_method' => PaymentMethod::TRANSFER,
+            'notes' => 'Recibo #0448 | Concepto: CUOTA INICIAL',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $toInicial->id,
+            'target' => AllocationTarget::DOWN_PAYMENT,
+            'amortization_installment_id' => $inicial->id,
+            'amount' => '9269600.00',
+            'principal' => '9269600.00',
+            'interest' => '0.00',
+        ]);
+
+        $leftover = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::DOWN_PAYMENT,
+            'amount' => '250400.00',
+            'transaction_date' => '2025-11-14',
+            'payment_method' => PaymentMethod::TRANSFER,
+            'notes' => 'Recibo #0448 | Concepto: CUOTA INICIAL',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $leftover->id,
+            'target' => AllocationTarget::INSTALLMENT,
+            'amortization_installment_id' => $cuota1->id,
+            'amount' => '250400.00',
+            'principal' => '0.00',
+            'interest' => '250400.00',
+        ]);
+        TransactionAllocation::query()->create([
+            'transaction_id' => $leftover->id,
+            'target' => AllocationTarget::DOWN_PAYMENT,
+            'amortization_installment_id' => $inicial->id,
+            'amount' => '0.00',
+            'principal' => '0.00',
+            'interest' => '0.00',
+        ]);
+
+        $this->getJson("/api/contracts/{$this->contract->id}/life-sheet")
+            ->assertOk()
+            ->assertJsonPath('data.rows.0.concept', 'CUOTA INICIAL')
+            ->assertJsonPath('data.rows.0.amount', '9269600.00')
+            ->assertJsonPath('data.rows.1.concept', 'CUOTA 1')
+            ->assertJsonPath('data.rows.1.amount', '250400.00')
+            ->assertJsonPath('data.rows.1.receipt_number', '0448');
+    }
+
+    public function test_pago_nuevo_con_allocations_usa_cuota_y_rango(): void
+    {
+        $seven = $this->createInstallment(7, '2000000.00', '0.00', 'paid');
+        $eight = $this->createInstallment(8, '2000000.00', '0.00', 'paid');
+        $nine = $this->createInstallment(9, '2000000.00', '0.00', 'paid');
+
+        $tx = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::REGULAR_PAYMENT,
+            'amount' => '4018003.00',
+            'transaction_date' => '2026-09-10',
+            'payment_method' => PaymentMethod::CASH,
+            'notes' => 'Recibo #032',
+            'receipt_number' => '032',
+        ]);
+
+        foreach ([$seven, $eight, $nine] as $installment) {
+            TransactionAllocation::query()->create([
+                'transaction_id' => $tx->id,
+                'target' => AllocationTarget::INSTALLMENT,
+                'amortization_installment_id' => $installment->id,
+                'amount' => '1339334.33',
+                'principal' => '1000000.00',
+                'interest' => '339334.33',
+            ]);
+        }
+
+        $this->getJson("/api/contracts/{$this->contract->id}/life-sheet")
+            ->assertOk()
+            ->assertJsonPath('data.rows.0.concept', 'CUOTA 7-8-9')
+            ->assertJsonPath('data.rows.0.receipt_number', '032');
+    }
+
     public function test_consolidado_desglosa_lo_pagado_en_interes_y_capital(): void
     {
         // Inicial: 100% capital. Cuota 1: interés primero, luego capital.
@@ -315,9 +406,85 @@ class ContractLifeSheetTest extends TestCase
             ->assertOk();
     }
 
-    private function createInstallment(int $number, string $principal, string $paid, string $status): void
+    public function test_par_revertido_y_reversa_siguen_visibles_pero_no_mueven_total_pagado_ni_saldo(): void
     {
-        AmortizationInstallment::query()->create([
+        $this->createInstallment(1, '2000000.00', '800000.00', 'partial');
+
+        Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::REGULAR_PAYMENT,
+            'amount' => '500000.00',
+            'transaction_date' => '2026-02-01',
+            'payment_method' => PaymentMethod::CASH,
+            'receipt_number' => '100',
+            'notes' => 'Recibo #100',
+        ]);
+
+        $reversed = Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::REGULAR_PAYMENT,
+            'amount' => '200000.00',
+            'transaction_date' => '2026-02-02',
+            'payment_method' => PaymentMethod::CASH,
+            'receipt_number' => '8484',
+            'notes' => 'Recibo #8484',
+            'reversed_at' => now(),
+        ]);
+
+        Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::PAYMENT_REVERSAL,
+            'amount' => '200000.00',
+            'transaction_date' => '2026-02-03',
+            'payment_method' => PaymentMethod::CASH,
+            'notes' => 'Reversa del recibo 8484',
+            'reversal_transaction_id' => null,
+        ]);
+
+        Transaction::query()->create([
+            'contract_id' => $this->contract->id,
+            'transaction_type' => TransactionType::REGULAR_PAYMENT,
+            'amount' => '300000.00',
+            'transaction_date' => '2026-02-04',
+            'payment_method' => PaymentMethod::TRANSFER,
+            'receipt_number' => '332',
+            'notes' => 'Recibo #332',
+        ]);
+
+        $collected = bcadd('500000.00', '300000.00', 2);
+        $firstBalance = null;
+
+        $response = $this->getJson("/api/contracts/{$this->contract->id}/life-sheet");
+        $firstBalance = $response->json('data.rows.0.balance');
+
+        $response->assertOk()
+            ->assertJsonCount(4, 'data.rows')
+            ->assertJsonPath('data.summary.collected', $collected)
+            ->assertJsonPath('data.rows.0.receipt_number', '100')
+            ->assertJsonPath('data.rows.0.total_paid', '500000.00')
+            ->assertJsonPath('data.rows.0.affects_running_total', true)
+            ->assertJsonPath('data.rows.1.receipt_number', '8484')
+            ->assertJsonPath('data.rows.1.amount', '200000.00')
+            ->assertJsonPath('data.rows.1.efectivo', '200000.00')
+            ->assertJsonPath('data.rows.1.total_paid', '500000.00')
+            ->assertJsonPath('data.rows.1.balance', $firstBalance)
+            ->assertJsonPath('data.rows.1.affects_running_total', false)
+            ->assertJsonPath('data.rows.1.concept', 'PAGO (revertido, no afecta el saldo)')
+            ->assertJsonPath('data.rows.2.concept', 'REVERSA DE PAGO (no afecta el saldo)')
+            ->assertJsonPath('data.rows.2.amount', '200000.00')
+            ->assertJsonPath('data.rows.2.total_paid', '500000.00')
+            ->assertJsonPath('data.rows.2.balance', $firstBalance)
+            ->assertJsonPath('data.rows.2.affects_running_total', false)
+            ->assertJsonPath('data.rows.3.receipt_number', '332')
+            ->assertJsonPath('data.rows.3.total_paid', $collected)
+            ->assertJsonPath('data.rows.3.affects_running_total', true);
+
+        $this->assertNotSame($reversed->id, $response->json('data.rows.3.transaction_id'));
+    }
+
+    private function createInstallment(int $number, string $principal, string $paid, string $status): AmortizationInstallment
+    {
+        return AmortizationInstallment::query()->create([
             'contract_id' => $this->contract->id,
             'installment_number' => $number,
             'due_date' => '2025-09-10',

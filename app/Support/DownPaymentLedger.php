@@ -23,7 +23,9 @@ class DownPaymentLedger
             ->where('target', AllocationTarget::DOWN_PAYMENT->value)
             ->whereHas(
                 'transaction',
-                fn ($query) => $query->where('contract_id', $contract->id)
+                fn ($query) => $query
+                    ->where('contract_id', $contract->id)
+                    ->whereNull('reversed_at')
             )
             ->sum('amount');
 
@@ -31,6 +33,7 @@ class DownPaymentLedger
         // la transacción es la verdad. Si ya hay allocation, no se suma otra vez.
         $directWithoutAllocation = $contract->transactions()
             ->where('transaction_type', TransactionType::DOWN_PAYMENT)
+            ->whereNull('reversed_at')
             ->whereDoesntHave(
                 'allocations',
                 fn ($query) => $query->where('target', AllocationTarget::DOWN_PAYMENT->value)

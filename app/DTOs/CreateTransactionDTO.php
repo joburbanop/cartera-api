@@ -21,6 +21,8 @@ class CreateTransactionDTO
         public readonly ?string $recalculationType = null,
         public readonly ?UploadedFile $receipt = null,
         public readonly ?string $notes = null,
+        public readonly ?string $receiptNumber = null,
+        public readonly ?int $bankAccountId = null,
     ) {}
 
     public static function fromRequest(
@@ -51,6 +53,8 @@ class CreateTransactionDTO
             paymentOption: $paymentOption,
             recalculationType: $recalculationType,
             receipt: $request->file('receipt'),
+            receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
     }
 

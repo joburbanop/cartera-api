@@ -25,6 +25,7 @@ enum PermissionName: string
     case CUSTOMERS_MANAGE = 'customers.manage';
     case BANK_ACCOUNTS_MANAGE = 'bank-accounts.manage';
     case PAYMENTS_REGISTER = 'payments.register';
+    case PAYMENTS_REVERSE = 'payments.reverse';
     case EXTRAORDINARY_PAYMENTS_APPLY = 'extraordinary-payments.apply';
     case CONTRACTS_REFINANCE = 'contracts.refinance';
     /** Reservado: desistimiento de contrato (función planeada, UI «Próximamente»). */
@@ -69,6 +70,7 @@ enum PermissionName: string
             self::CUSTOMERS_MANAGE,
             self::BANK_ACCOUNTS_MANAGE,
             self::PAYMENTS_REGISTER,
+            self::PAYMENTS_REVERSE,
             self::EXTRAORDINARY_PAYMENTS_APPLY,
             self::CONTRACTS_REFINANCE,
             self::CONTRACTS_RESCIND,

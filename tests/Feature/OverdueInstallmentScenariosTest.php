@@ -1,19 +1,14 @@
 <?php
 
-use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
-use App\Enums\PaymentMethod;
 use App\Enums\RoleName;
-use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
 use App\Services\Collection\CascadeCollectionService;
-use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -204,67 +199,6 @@ it('reparte un pago explícito de varias cuotas de la más antigua a la más nue
         ->and(number_format((float) $five->interest_paid, 2, '.', ''))->toBe('150.00')
         ->and(number_format((float) $five->principal_paid, 2, '.', ''))->toBe('850.00')
         ->and($five->remaining_balance)->toBe('1000.00');
-});
-
-it('rechaza un abono extraordinario si el monto no cubre la cuota vencida anterior', function () {
-    $contract = overdueDateScenariosContract();
-    $five = overdueScenarioRow($contract, 5);
-
-    try {
-        app(ExtraordinaryPaymentService::class)->registerExtraordinaryPayment(new CreateTransactionDTO(
-            contractId: $contract->id,
-            amount: '400.00',
-            transactionDate: Carbon::parse(now()->toDateString()),
-            paymentMethod: PaymentMethod::CASH,
-            transactionType: TransactionType::EXTRAORDINARY_PAYMENT,
-            installmentNumbers: [(int) $five->id],
-            paymentOption: 'reducir_plazo',
-        ));
-        expect(false)->toBeTrue('Se esperaba ValidationException');
-    } catch (ValidationException $e) {
-        expect($e->errors()['amount'][0])->toBe(
-            'Debe saldar primero las cuotas atrasadas antes de aplicar un abono extraordinario.'
-        );
-    }
-
-    $four = overdueScenarioRow($contract, 4);
-    $five = $five->fresh();
-
-    expect($four->quota_debt)->toBe('1000.00')
-        ->and($four->status)->toBe(AmortizationStatus::PENDING)
-        ->and($four->remaining_balance)->toBe('2000.00')
-        ->and($five->extra_payment)->toBe('0.00')
-        ->and($five->status)->toBe(AmortizationStatus::PENDING)
-        ->and($five->remaining_balance)->toBe('1000.00');
-});
-
-it('salda primero la cuota vencida y envía solo el remanente a reducir_plazo', function () {
-    $contract = overdueDateScenariosContract();
-    $five = overdueScenarioRow($contract, 5);
-
-    app(ExtraordinaryPaymentService::class)->registerExtraordinaryPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '1500.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::EXTRAORDINARY_PAYMENT,
-        installmentNumbers: [(int) $five->id],
-        paymentOption: 'reducir_plazo',
-    ));
-
-    $four = overdueScenarioRow($contract, 4);
-    $five = overdueScenarioRow($contract, 5);
-
-    expect($four->status)->toBe(AmortizationStatus::PAID)
-        ->and($four->quota_debt)->toBe('0.00')
-        ->and(number_format((float) $four->interest_paid, 2, '.', ''))->toBe('200.00')
-        ->and(number_format((float) $four->principal_paid, 2, '.', ''))->toBe('800.00')
-        ->and($four->remaining_balance)->toBe('2000.00')
-        ->and($four->extra_payment)->toBe('0.00')
-        ->and($five->status)->toBe(AmortizationStatus::PAID)
-        ->and($five->extra_payment)->toBe('500.00')
-        ->and($five->remaining_balance)->toBe('500.00')
-        ->and($five->projected_balance)->toBe('500.00');
 });
 
 it('expone estado_cartera vencida con la cuota 4 impaga y al_dia al cubrirla', function () {

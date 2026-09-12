@@ -7,8 +7,13 @@ use App\Enums\LotStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use App\Models\Contract;
+use App\Models\Receipt;
+use App\Models\Transaction;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
 use App\Support\DownPaymentLedger;
+use App\Support\ReceiptNumber;
 use App\Support\FinancialRules;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
@@ -34,6 +39,8 @@ class PreventaThenCascadeCollectionService
         ?UploadedFile $receipt = null,
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
+        ?string $receiptNumber = null,
+        ?int $bankAccountId = null,
     ): array {
         return DB::transaction(function () use (
             $contractId,
@@ -44,8 +51,13 @@ class PreventaThenCascadeCollectionService
             $receipt,
             $paymentMethod,
             $notes,
+            $receiptNumber,
+            $bankAccountId,
         ) {
-            $contract = Contract::query()->with('lot')->findOrFail($contractId);
+            $contract = ContractFinancialLock::acquire($contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            ReceiptNumber::assertUnusedOnContract($contract->id, $receiptNumber);
+            $contract->load('lot');
             $normalizedAmount = $this->money($amount);
             $effectiveDate = ($transactionDate ?? Carbon::now())->copy()->startOfDay();
             $method = $paymentMethod ?? PaymentMethod::CASH;
@@ -60,6 +72,8 @@ class PreventaThenCascadeCollectionService
                     $receipt,
                     $method,
                     $notes,
+                    receiptNumber: $receiptNumber,
+                    bankAccountId: $bankAccountId,
                 );
             }
 
@@ -78,6 +92,8 @@ class PreventaThenCascadeCollectionService
                 installmentNumbers: [],
                 notes: $notes,
                 receipt: $receipt,
+                receiptNumber: $receiptNumber,
+                bankAccountId: $bankAccountId,
             ));
 
             $cascade = null;
@@ -91,7 +107,11 @@ class PreventaThenCascadeCollectionService
                     null,
                     $method,
                     $notes,
+                    receiptNumber: $receiptNumber,
+                    bankAccountId: $bankAccountId,
                 );
+
+                $this->shareReceiptWithCascade($downPayment, $cascade);
             }
 
             return [
@@ -124,6 +144,34 @@ class PreventaThenCascadeCollectionService
     private function pendingInitial(Contract $contract): string
     {
         return DownPaymentLedger::pending($contract);
+    }
+
+    /**
+     * Un solo movimiento bancario, dos transacciones internas: la cascada
+     * reutiliza el archivo ya guardado en la inicial, sin una segunda copia.
+     *
+     * @param  array<string, mixed>  $cascade
+     */
+    private function shareReceiptWithCascade(Transaction $downPayment, array $cascade): void
+    {
+        $cascadeTxId = (int) ($cascade['transaction_id'] ?? 0);
+        if ($cascadeTxId <= 0 || $cascadeTxId === (int) $downPayment->id) {
+            return;
+        }
+
+        $source = $downPayment->receipt()->first();
+        if (! $source) {
+            return;
+        }
+
+        Receipt::query()->firstOrCreate(
+            ['transaction_id' => $cascadeTxId],
+            [
+                'file_path' => $source->file_path,
+                'file_name' => $source->file_name,
+                'file_type' => $source->file_type,
+            ],
+        );
     }
 
     private function money(string $value): string

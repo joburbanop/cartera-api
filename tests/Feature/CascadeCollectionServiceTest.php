@@ -123,7 +123,7 @@ it('continues the cascade to the next installment when no payment option is prov
         ->and($nextInstallment->fresh()->projected_balance)->toBe('1000.00');
 });
 
-it('distributes selected installments sequentially and applies surplus only to the last selected installment', function () {
+it('distributes selected installments sequentially and applies surplus only to the last selected installment', function (string $option) {
     $project = Project::create([
         'name' => 'Proyecto Seleccionado',
         'description' => 'Proyecto de prueba',
@@ -213,15 +213,15 @@ it('distributes selected installments sequentially and applies surplus only to t
         'status' => AmortizationStatus::PENDING->value,
     ]);
 
-    $extraordinaryMock = \Mockery::mock(ExtraordinaryPaymentService::class);
+    $extraordinaryMock = Mockery::mock(ExtraordinaryPaymentService::class);
     $extraordinaryMock
         ->shouldReceive('handle')
         ->once()
-        ->withArgs(function ($handledContract, $handledInstallment, $surplusAmount, $paymentOption) use ($contract, $month12) {
+        ->withArgs(function ($handledContract, $handledInstallment, $surplusAmount, $paymentOption) use ($contract, $month12, $option) {
             return $handledContract->id === $contract->id
                 && (int) $handledInstallment->id === (int) $month12->id
                 && $surplusAmount === '2000.00'
-                && $paymentOption === 'reducir_plazo';
+                && $paymentOption === $option;
         })
         ->andReturn($month12);
 
@@ -232,7 +232,7 @@ it('distributes selected installments sequentially and applies surplus only to t
     $result = $service->process(
         $contract->id,
         '5000.00',
-        'reducir_plazo',
+        $option,
         null,
         [$month10->id, $month11->id, $month12->id],
     );
@@ -249,7 +249,7 @@ it('distributes selected installments sequentially and applies surplus only to t
         ->and($month10->fresh()->status)->toBe(AmortizationStatus::PAID)
         ->and($month11->fresh()->status)->toBe(AmortizationStatus::PAID)
         ->and($month12->fresh()->status)->toBe(AmortizationStatus::PAID);
-});
+})->with(['reducir_plazo', 'abono_capital']);
 
 it('cascades leftover to unselected pending installments when no extraordinary option is provided', function () {
     $project = Project::create([
@@ -428,7 +428,7 @@ it('rechaza el excedente si no indican qué hacer con él', function () {
     ]);
 
     try {
-        app(CascadeCollectionService::class)->process($contract->id, '1500.00', null);
+        app(CascadeCollectionService::class)->process($contract->id, '2500.00', null);
         expect(false)->toBeTrue('Se esperaba ValidationException');
     } catch (ValidationException $e) {
         expect($e->errors()['payment_option'][0])->toBe(CascadeCollectionService::SURPLUS_ACTION_REQUIRED);
@@ -504,4 +504,3 @@ it('rejects a cascade payment when the contract is already fully settled', funct
         expect($e->errors()['amount'][0])->toBe('La obligación ya fue cumplida, no hay saldo pendiente para aplicar este pago.');
     }
 });
-

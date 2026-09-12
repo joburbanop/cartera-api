@@ -11,6 +11,11 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Services\Residual\ResidualBalanceService;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
+use App\Support\DueDateRules;
+use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -27,6 +32,7 @@ class CascadeCollectionService
         private readonly InstallmentPaymentAllocator $allocator,
         private readonly TransactionAllocationRecorder $allocationRecorder,
         private readonly PaymentPromiseAllocationService $promiseAllocationService,
+        private readonly ResidualBalanceService $residualBalanceService,
     ) {}
 
     public function process(
@@ -40,26 +46,39 @@ class CascadeCollectionService
         ?string $notes = null,
         bool $persistTransaction = true,
         ?int $allocationTransactionId = null,
+        ?string $receiptNumber = null,
+        ?int $bankAccountId = null,
     ): array {
-        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction, $allocationTransactionId) {
-            $contract = Contract::findOrFail($contractId);
+        return DB::transaction(function () use ($contractId, $amount, $paymentOption, $transactionDate, $selectedInstallmentIds, $receipt, $paymentMethod, $notes, $persistTransaction, $allocationTransactionId, $receiptNumber, $bankAccountId) {
+            $contract = ContractFinancialLock::acquire($contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            // Recibo duplicado: lo valida la puerta HTTP (PreventaThenCascade /
+            // Split). Aquí no: el par inicial+cascada reutiliza el mismo número.
             $availableAmount = $this->normalizeMoney($amount);
             $processedAmount = '0.00';
             $appliedInstallments = [];
             $normalizedPaymentOption = $this->normalizePaymentOption($paymentOption);
             $effectiveTransactionDate = ($transactionDate ?? Carbon::now())->copy()->startOfDay();
-            $hasExplicitSelection = ! empty($selectedInstallmentIds);
+            $selectedIds = array_values(array_unique(array_filter(
+                array_map('intval', $selectedInstallmentIds),
+                fn (int $id) => $id > 0,
+            )));
+            $hasExplicitSelection = $selectedIds !== [];
             $hasExtraordinaryOption = $this->isExtraordinaryOption($normalizedPaymentOption);
 
             $transaction = null;
             if ($persistTransaction) {
+                $normalizedReceipt = ReceiptNumber::normalize($receiptNumber);
                 $transaction = Transaction::create([
                     'contract_id' => $contract->id,
                     'transaction_type' => TransactionType::REGULAR_PAYMENT,
                     'amount' => $availableAmount,
                     'transaction_date' => $effectiveTransactionDate->toDateString(),
                     'payment_method' => $paymentMethod ?? PaymentMethod::CASH,
-                    'notes' => $notes,
+                    'bank_account_id' => $bankAccountId,
+                    'notes' => ReceiptNumber::mergeIntoNotes($notes, $normalizedReceipt),
+                    'receipt_number' => $normalizedReceipt,
+                    'payment_option' => $normalizedPaymentOption,
                 ]);
 
                 if ($receipt) {
@@ -79,7 +98,10 @@ class CascadeCollectionService
                 ? $this->allocationRecorder->snapshotRegulars($contract)
                 : [];
 
-            $pendingInstallments = $this->getPendingInstallments($contract, $selectedInstallmentIds)->values();
+            $pendingInstallments = $this->getPendingInstallments($contract, $selectedIds, $effectiveTransactionDate)->values();
+            $injectedCurrent = $this->allocator->unpaidCurrentInstallments($contract, $effectiveTransactionDate)
+                ->filter(fn (AmortizationInstallment $row) => ! in_array((int) $row->id, $selectedIds, true))
+                ->values();
             $totalInstallments = $pendingInstallments->count();
             $processedIds = [];
 
@@ -92,10 +114,10 @@ class CascadeCollectionService
                     continue;
                 }
 
-                // Solo plazo/cuota absorben el sobrante en la última seleccionada.
-                // Adelantar cuotas deja el resto para la cascada FIFO.
+                // Plazo, cuota y abono a capital absorben el sobrante en la última
+                // seleccionada. Adelantar cuotas deja el resto para la cascada FIFO.
                 $isLastSelected = $hasExplicitSelection
-                    && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota'], true)
+                    && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota', 'abono_capital'], true)
                     && ($index === $totalInstallments - 1);
                 $balanceDue = $this->normalizeMoney((string) ($installment->quota_debt ?? $installment->remaining_balance ?? $installment->installment_value ?? '0.00'));
                 $amountToDebt = bccomp($availableAmount, $balanceDue, 2) <= 0
@@ -135,7 +157,7 @@ class CascadeCollectionService
                 if (
                     $isLastSelected
                     && bccomp($surplusAmount, '0.00', 2) > 0
-                    && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota'], true)
+                    && in_array($normalizedPaymentOption, ['reducir_plazo', 'reducir_cuota', 'abono_capital'], true)
                 ) {
                     $extraordinaryInstallment = $installment->fresh();
 
@@ -156,11 +178,64 @@ class CascadeCollectionService
                 }
             }
 
-            if ($hasExtraordinaryOption && ! $hasExplicitSelection && bccomp($availableAmount, '0.00', 2) > 0) {
-                $implicitTarget = $this->nextNonOverduePendingInstallment(
+            // Hueco A cobra la corriente en la cola. El sobrante de ESA
+            // corriente (no el de mora) vuelve a handle() como cuando la
+            // corriente estaba "libre" en la rama sin selección.
+            $injectedCurrentPaid = $this->lastProcessedInjectedCurrent($injectedCurrent, $processedIds);
+            if (
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
+                && ! $hasExplicitSelection
+                && $injectedCurrentPaid
+                && bccomp($availableAmount, '0.00', 2) > 0
+            ) {
+                $this->absorbSurplusViaHandle(
                     $contract,
-                    $processedIds,
+                    $injectedCurrentPaid,
+                    $availableAmount,
+                    (string) $normalizedPaymentOption,
                     $effectiveTransactionDate,
+                    $appliedInstallments,
+                    $processedAmount,
+                );
+                $availableAmount = '0.00';
+            }
+
+            // Ventana mora→siguiente al día: #N ya venció, #N+1 todavía no.
+            // #N no entra como corriente del mes, así que no hay
+            // absorbSurplusViaHandle arriba. El sobrante es extra de esa #N,
+            // no se adelanta a firstNonOverduePending (#N+1).
+            if (
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
+                && ! $hasExplicitSelection
+                && bccomp($availableAmount, '0.00', 2) > 0
+            ) {
+                $lastCovered = $this->lastProcessedInstallment($contract, $processedIds);
+                if (
+                    $lastCovered
+                    && $this->nextPendingIsNotOverdue($contract, $lastCovered, $effectiveTransactionDate)
+                ) {
+                    $this->absorbSurplusViaHandle(
+                        $contract,
+                        $lastCovered,
+                        $availableAmount,
+                        (string) $normalizedPaymentOption,
+                        $effectiveTransactionDate,
+                        $appliedInstallments,
+                        $processedAmount,
+                    );
+                    $availableAmount = '0.00';
+                }
+            }
+
+            if (
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
+                && ! $hasExplicitSelection
+                && bccomp($availableAmount, '0.00', 2) > 0
+            ) {
+                $implicitTarget = $this->allocator->firstNonOverduePending(
+                    $contract,
+                    $effectiveTransactionDate,
+                    $processedIds,
                 );
 
                 if (! $implicitTarget) {
@@ -291,6 +366,8 @@ class CascadeCollectionService
                 }
             }
 
+            $residualSummary = $this->residualBalanceService->summary((int) $contract->id);
+
             return [
                 'transaction_id' => $transaction?->id,
                 'contract_id' => $contract->id,
@@ -298,13 +375,30 @@ class CascadeCollectionService
                 'amount_applied' => $processedAmount,
                 'remaining_amount' => '0.00',
                 'installments' => $appliedInstallments,
+                'application_notice' => $this->buildApplicationNotice(
+                    $injectedCurrent,
+                    $appliedInstallments,
+                    $selectedIds,
+                    $contract,
+                ),
+                'pending_residual_balance' => $residualSummary['pending_sum'],
+                'residual_balance_collectible' => $residualSummary['collectible'],
             ];
         });
     }
 
     private function isExtraordinaryOption(?string $paymentOption): bool
     {
-        return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'adelantar_cuotas'], true);
+        return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'adelantar_cuotas', 'abono_capital'], true);
+    }
+
+    /**
+     * Plazo, cuota y abono a capital pegan el sobrante en la cuota actual.
+     * Adelantar cuotas no: el resto sigue a cascadeToPending (FIFO).
+     */
+    private function sticksSurplusOnCurrent(?string $paymentOption): bool
+    {
+        return in_array($paymentOption, ['reducir_plazo', 'reducir_cuota', 'abono_capital'], true);
     }
 
     private function normalizePaymentOption(?string $paymentOption): ?string
@@ -319,36 +413,175 @@ class CascadeCollectionService
             'reduce_time', 'reducir_plazo' => 'reducir_plazo',
             'reduce_quota', 'reducir_cuota' => 'reducir_cuota',
             'transfer', 'adelantar_cuotas' => 'adelantar_cuotas',
+            'abono_capital' => 'abono_capital',
             default => $normalizedOption,
         };
     }
 
-    private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds = []): EloquentCollection
-    {
-        return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds);
+    /**
+     * Aviso solo si la corriente se inyectó (no estaba seleccionada) y recibió dinero.
+     */
+    private function buildApplicationNotice(
+        EloquentCollection $injectedCurrent,
+        array $appliedInstallments,
+        array $selectedIds,
+        Contract $contract,
+    ): ?string {
+        foreach ($injectedCurrent as $current) {
+            $applied = null;
+            foreach ($appliedInstallments as $row) {
+                if ((int) ($row['installment_id'] ?? 0) === (int) $current->id
+                    && bccomp((string) ($row['amount_applied'] ?? '0.00'), '0.00', 2) > 0
+                ) {
+                    $applied = $row;
+                    break;
+                }
+            }
+
+            if ($applied === null) {
+                continue;
+            }
+
+            $amountLabel = $this->formatNoticeAmount((string) $applied['amount_applied']);
+            $currentNumber = (int) $current->installment_number;
+            $selectedOtherId = null;
+
+            foreach ($selectedIds as $id) {
+                if ($id !== (int) $current->id) {
+                    $selectedOtherId = $id;
+                    break;
+                }
+            }
+
+            if ($selectedOtherId === null) {
+                return "Se aplicó {$amountLabel} a la cuota corriente #{$currentNumber} porque estaba pendiente de este mes.";
+            }
+
+            $selectedNumber = (int) $contract->amortizationInstallments()
+                ->where('id', $selectedOtherId)
+                ->value('installment_number');
+
+            return "Se aplicó {$amountLabel} a la cuota corriente #{$currentNumber} antes que a la cuota #{$selectedNumber} que seleccionaste, porque estaba pendiente de este mes.";
+        }
+
+        return null;
     }
 
-    private function nextNonOverduePendingInstallment(
-        Contract $contract,
-        array $excludeIds,
-        Carbon $transactionDate,
+    private function formatNoticeAmount(string $amount): string
+    {
+        return '$'.number_format((float) $amount, 0, ',', '.');
+    }
+
+    private function getPendingInstallments(Contract $contract, array $selectedInstallmentIds, Carbon $asOf): EloquentCollection
+    {
+        return $this->allocator->resolveInstallmentsToProcess($contract, $selectedInstallmentIds, $asOf);
+    }
+
+    /**
+     * Última corriente inyectada (no seleccionada) que ya recibió dinero
+     * en la cola mora→corriente. Null si el sobrante viene solo de mora
+     * y no hubo corriente en cola.
+     */
+    private function lastProcessedInjectedCurrent(
+        EloquentCollection $injectedCurrent,
+        array $processedIds,
     ): ?AmortizationInstallment {
-        $query = $contract->amortizationInstallments()
-            ->where('installment_number', '>', 0)
+        $processed = array_flip(array_map('intval', $processedIds));
+        $last = null;
+
+        foreach ($injectedCurrent as $row) {
+            if (isset($processed[(int) $row->id])) {
+                $last = $row;
+            }
+        }
+
+        return $last;
+    }
+
+    private function lastProcessedInstallment(Contract $contract, array $processedIds): ?AmortizationInstallment
+    {
+        if ($processedIds === []) {
+            return null;
+        }
+
+        $lastId = (int) $processedIds[array_key_last($processedIds)];
+
+        return $contract->amortizationInstallments()->where('id', $lastId)->first();
+    }
+
+    /**
+     * True si existe una # posterior pendiente y aún no vence a $asOf.
+     * Sin siguiente (plan ya cubierto) no ancla: sigue el rechazo de
+     * obligación cumplida cuando el extra no cabe.
+     */
+    private function nextPendingIsNotOverdue(
+        Contract $contract,
+        AmortizationInstallment $lastCovered,
+        Carbon $asOf,
+    ): bool {
+        $next = $contract->amortizationInstallments()
+            ->where('installment_number', '>', (int) $lastCovered->installment_number)
             ->where('status', '!=', AmortizationStatus::PAID->value)
             ->where(function ($query) {
                 $query->where('quota_debt', '>', 0)
                     ->orWhere('remaining_balance', '>', 0);
             })
-            ->whereDate('due_date', '>=', $transactionDate->toDateString())
             ->orderBy('due_date', 'asc')
-            ->orderBy('installment_number', 'asc');
+            ->orderBy('installment_number', 'asc')
+            ->first();
 
-        if ($excludeIds !== []) {
-            $query->whereNotIn('id', $excludeIds);
+        if (! $next) {
+            return false;
         }
 
-        return $query->first();
+        return ! DueDateRules::isOverdue($next->due_date, $asOf);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $appliedInstallments
+     */
+    private function absorbSurplusViaHandle(
+        Contract $contract,
+        AmortizationInstallment $installment,
+        string $surplusAmount,
+        string $option,
+        Carbon $transactionDate,
+        array &$appliedInstallments,
+        string &$processedAmount,
+    ): void {
+        if (! $this->allocator->leftoverExceedsTolerance($surplusAmount)) {
+            return;
+        }
+
+        $this->extraordinaryPaymentService->handle(
+            $contract,
+            $installment->fresh(),
+            $surplusAmount,
+            $option,
+        );
+
+        $fresh = $installment->fresh();
+        if ($fresh) {
+            $fresh->update([
+                'payment_date' => $transactionDate->toDateString(),
+                'status' => AmortizationStatus::PAID->value,
+            ]);
+        }
+
+        $processedAmount = $this->normalizeMoney(bcadd($processedAmount, $surplusAmount, 2));
+
+        foreach ($appliedInstallments as $index => $applied) {
+            if ((int) ($applied['installment_id'] ?? 0) !== (int) $installment->id) {
+                continue;
+            }
+
+            $appliedInstallments[$index]['amount_applied'] = $this->normalizeMoney(
+                bcadd((string) ($applied['amount_applied'] ?? '0.00'), $surplusAmount, 2)
+            );
+            $appliedInstallments[$index]['status'] = AmortizationStatus::PAID->value;
+
+            break;
+        }
     }
 
     private function normalizeMoney(string $value): string

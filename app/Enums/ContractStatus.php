@@ -20,4 +20,13 @@ enum ContractStatus: string
             self::RESCINDIDO => 'Rescindido',
         };
     }
+
+    /**
+     * Terminado y rescindido no admiten cobros nuevos.
+     * Vencido no: el contrato sigue vivo y hay que recaudar.
+     */
+    public function isClosed(): bool
+    {
+        return $this === self::TERMINADO || $this === self::RESCINDIDO;
+    }
 }

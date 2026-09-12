@@ -6,12 +6,16 @@ use App\DTOs\CascadePaymentDTO;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCascadePaymentRequest;
+use App\Http\Requests\StoreResidualCollectionRequest;
 use App\Http\Requests\StoreSplitPaymentRequest;
 use App\Services\Collection\PreventaThenCascadeCollectionService;
 use App\Services\Collection\SplitPaymentService;
+use App\Services\Residual\ResidualCollectionService;
 use App\Traits\ApiResponse;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Validation\ValidationException;
 
 class CollectionController extends Controller
 {
@@ -20,6 +24,7 @@ class CollectionController extends Controller
     public function __construct(
         protected PreventaThenCascadeCollectionService $preventaThenCascadeCollectionService,
         protected SplitPaymentService $splitPaymentService,
+        protected ResidualCollectionService $residualCollectionService,
     ) {}
 
     public function store(StoreCascadePaymentRequest $request): JsonResponse
@@ -35,6 +40,8 @@ class CollectionController extends Controller
             $dto->selectedInstallments,
             $dto->receipt,
             $paymentMethod,
+            receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
 
         return $this->successResponse(
@@ -65,11 +72,45 @@ class CollectionController extends Controller
             paymentMethod: PaymentMethod::tryFrom((string) $request->input('payment_method', '')),
             notes: $request->validated('notes'),
             paymentOption: $request->validated('payment_option'),
+            receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
         );
 
         return $this->successResponse(
             $result,
             'Pago dividido registrado exitosamente.',
+            201,
+        );
+    }
+
+    /**
+     * Cobra residuales menores acumulados. Fuera del plan: no toca cuotas.
+     */
+    public function storeResidual(StoreResidualCollectionRequest $request): JsonResponse
+    {
+        $rawDate = $request->input('payment_date', $request->input('transaction_date'));
+
+        $receipt = $request->file('receipt');
+        if (! $receipt instanceof UploadedFile) {
+            throw ValidationException::withMessages([
+                'receipt' => ResidualCollectionService::RECEIPT_REQUIRED,
+            ]);
+        }
+
+        $result = $this->residualCollectionService->collect(
+            contractId: (int) $request->validated('contract_id'),
+            amount: (string) $request->validated('amount'),
+            receipt: $receipt,
+            transactionDate: $rawDate ? Carbon::parse($rawDate) : null,
+            paymentMethod: PaymentMethod::tryFrom((string) $request->input('payment_method', '')),
+            notes: $request->validated('notes'),
+            receiptNumber: $request->validated('receipt_number'),
+            bankAccountId: $request->validated('bank_account_id') !== null ? (int) $request->validated('bank_account_id') : null,
+        );
+
+        return $this->successResponse(
+            $result,
+            'Cobro de residuales registrado exitosamente.',
             201,
         );
     }

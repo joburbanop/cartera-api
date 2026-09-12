@@ -1,18 +1,13 @@
 <?php
 
-use App\DTOs\CreateTransactionDTO;
 use App\Enums\AmortizationStatus;
-use App\Enums\PaymentMethod;
-use App\Enums\TransactionType;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
 use App\Models\Project;
-use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
-use App\Services\Financial\Transaction\RegularPayment\RegularPaymentService;
+use App\Services\Collection\CascadeCollectionService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
@@ -86,48 +81,17 @@ function overdueGateContract(): Contract
     return $contract;
 }
 
-it('rejects an extraordinary payment when the amount does not cover prior overdue installments', function () {
+it('con reducir_plazo aplica FIFO a la mora y no rechaza si el monto no cubre todas las atrasadas', function () {
     $contract = overdueGateContract();
     $target = $contract->amortizationInstallments()->where('installment_number', 3)->first();
 
-    try {
-        app(ExtraordinaryPaymentService::class)->registerExtraordinaryPayment(new CreateTransactionDTO(
-            contractId: $contract->id,
-            amount: '1500.00',
-            transactionDate: Carbon::parse(now()->toDateString()),
-            paymentMethod: PaymentMethod::CASH,
-            transactionType: TransactionType::EXTRAORDINARY_PAYMENT,
-            installmentNumbers: [(int) $target->id],
-            paymentOption: 'reducir_plazo',
-        ));
-        expect(false)->toBeTrue('Se esperaba ValidationException');
-    } catch (ValidationException $e) {
-        expect($e->errors()['amount'][0])->toBe(
-            'Debe saldar primero las cuotas atrasadas antes de aplicar un abono extraordinario.'
-        );
-    }
-
-    expect($contract->amortizationInstallments()->where('installment_number', 1)->first()->status)
-        ->toBe(AmortizationStatus::OVERDUE)
-        ->and($contract->amortizationInstallments()->where('installment_number', 1)->first()->quota_debt)->toBe('1000.00')
-        ->and($contract->amortizationInstallments()->where('installment_number', 2)->first()->status)
-        ->toBe(AmortizationStatus::OVERDUE)
-        ->and($contract->amortizationInstallments()->where('installment_number', 3)->first()->extra_payment)->toBe('0.00');
-});
-
-it('settles prior overdue installments first and sends only the remainder to the extraordinary strategy', function () {
-    $contract = overdueGateContract();
-    $target = $contract->amortizationInstallments()->where('installment_number', 3)->first();
-
-    app(ExtraordinaryPaymentService::class)->registerExtraordinaryPayment(new CreateTransactionDTO(
-        contractId: $contract->id,
-        amount: '2500.00',
-        transactionDate: Carbon::parse(now()->toDateString()),
-        paymentMethod: PaymentMethod::CASH,
-        transactionType: TransactionType::EXTRAORDINARY_PAYMENT,
-        installmentNumbers: [(int) $target->id],
-        paymentOption: 'reducir_plazo',
-    ));
+    app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1500.00',
+        'reducir_plazo',
+        Carbon::parse(now()->toDateString()),
+        [(int) $target->id],
+    );
 
     $first = $contract->amortizationInstallments()->where('installment_number', 1)->first();
     $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
@@ -135,40 +99,8 @@ it('settles prior overdue installments first and sends only the remainder to the
 
     expect($first->status)->toBe(AmortizationStatus::PAID)
         ->and($first->quota_debt)->toBe('0.00')
-        ->and(number_format((float) $first->principal_paid, 2, '.', ''))->toBe('1000.00')
-        ->and($first->remaining_balance)->toBe('3000.00')
-        ->and($second->status)->toBe(AmortizationStatus::PAID)
-        ->and($second->quota_debt)->toBe('0.00')
-        ->and(number_format((float) $second->principal_paid, 2, '.', ''))->toBe('1000.00')
-        ->and($third->status)->toBe(AmortizationStatus::PAID)
-        ->and($third->extra_payment)->toBe('500.00')
-        ->and($third->remaining_balance)->toBe('500.00')
-        ->and($third->projected_balance)->toBe('500.00');
-});
-
-it('rejects a regular payment with extraordinary option when prior overdue installments are not covered', function () {
-    $contract = overdueGateContract();
-    $target = $contract->amortizationInstallments()->where('installment_number', 3)->first();
-
-    try {
-        app(RegularPaymentService::class)->registerRegularPayment(new CreateTransactionDTO(
-            contractId: $contract->id,
-            amount: '1500.00',
-            transactionDate: Carbon::parse(now()->toDateString()),
-            paymentMethod: PaymentMethod::CASH,
-            transactionType: TransactionType::REGULAR_PAYMENT,
-            installmentNumbers: [(int) $target->id],
-            paymentOption: 'reducir_plazo',
-        ));
-        expect(false)->toBeTrue('Se esperaba ValidationException');
-    } catch (ValidationException $e) {
-        expect($e->errors()['amount'][0])->toBe(
-            'Debe saldar primero las cuotas atrasadas antes de aplicar un abono extraordinario.'
-        );
-    }
-
-    expect($contract->amortizationInstallments()->where('installment_number', 1)->first()->quota_debt)
-        ->toBe('1000.00')
-        ->and($contract->amortizationInstallments()->where('installment_number', 3)->first()->status)
-        ->toBe(AmortizationStatus::PENDING);
+        ->and($second->quota_debt)->toBe('500.00')
+        ->and($second->status)->toBe(AmortizationStatus::OVERDUE)
+        ->and($third->status)->toBe(AmortizationStatus::PENDING)
+        ->and($third->extra_payment)->toBe('0.00');
 });

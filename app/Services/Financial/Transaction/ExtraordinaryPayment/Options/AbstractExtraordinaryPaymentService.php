@@ -5,6 +5,7 @@ namespace App\Services\Financial\Transaction\ExtraordinaryPayment\Options;
 use App\Enums\AmortizationStatus;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Services\Financial\Amortization\AmortizationCalculationService;
 
 abstract class AbstractExtraordinaryPaymentService
 {
@@ -15,6 +16,10 @@ abstract class AbstractExtraordinaryPaymentService
         return bccomp($storedExtra, $surplusAmount, 2) === 0;
     }
 
+    /**
+     * Pega el extra en la cuota y recalcula interés futuro sin acortar plazo.
+     * Lo usa reducir_cuota (PaymentReductionService) vía Cascade.
+     */
     protected function processBasePayment(
         Contract $contract,
         AmortizationInstallment $installment,
@@ -63,6 +68,11 @@ abstract class AbstractExtraordinaryPaymentService
             'status' => AmortizationStatus::PAID->value,
             'payment_date' => $installment->payment_date ?? $contract->transactions()->latest()->first()?->transaction_date ?? $contract->transactions()->latest()->first()?->created_at ?? now(),
         ]);
+
+        app(AmortizationCalculationService::class)->recalculateFutureKeepingQuota(
+            $contract,
+            (int) ($installment->installment_number ?? 0),
+        );
 
         return $installment->fresh();
     }

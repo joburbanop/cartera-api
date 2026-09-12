@@ -5,10 +5,12 @@ namespace App\Console\Commands;
 use App\DTOs\CreateTransactionDTO;
 use App\Enums\AllocationTarget;
 use App\Enums\AmortizationStatus;
+use App\Enums\ContractStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
 use App\Models\Contract;
+use App\Models\ContractResidualBalance;
 use App\Models\Transaction;
 use App\Models\TransactionAllocation;
 use App\Services\Collection\CascadeCollectionService;
@@ -16,6 +18,7 @@ use App\Services\Financial\Amortization\AmortizationCalculationService;
 use App\Services\Financial\LifeSheet\ContractLifeSheetService;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Services\Imports\SanMiguelConceptReplayService;
 use App\Services\PaymentPromiseStatusService;
 use App\Support\DownPaymentLedger;
 use App\Support\FinancialRules;
@@ -25,11 +28,32 @@ use Illuminate\Support\Facades\DB;
 
 class ReimputeSanMiguelTargetLotsCommand extends Command
 {
-    protected $signature = 'san-miguel:reimpute-target-lots {--dry-run : Solo muestra before/after sin escribir} {--lot=* : Solo estos lotes}';
+    protected $signature = 'san-miguel:reimpute-target-lots
+        {--dry-run : Solo muestra before/after sin escribir}
+        {--lot=* : Solo estos lotes}
+        {--wave= : Oleada (ad = G1 + Lote 3; bc = G3 + G4; inicial = recibo inicial partido)}';
 
     protected $description = 'Reimputa extras, unimputed, parcial, inicial+capital y tasa 0 en lotes San Miguel 3, 4, 5, 6, 7 y 11. Idempotente.';
 
     private const LOTS = ['3', '4', '5', '6', '7', '11'];
+
+    /** G1 + re-pase Lote 3 (oleada A+D). */
+    public const WAVE_AD_LOTS = ['3', '12', '17', '24', '25', '27', '33', '34', '57'];
+
+    /** G3: rango + ABONO en el mismo concepto. */
+    public const WAVE_B_LOTS = ['18', '22', '41'];
+
+    /** G4: CUOTA N simple, monto > cuota → reducir_plazo. */
+    public const WAVE_C_LOTS = ['35', '42', '55'];
+
+    /** Oleadas B+C juntas (mismo protocolo, un solo dry-run). */
+    public const WAVE_BC_LOTS = ['18', '22', '41', '35', '42', '55'];
+
+    /** Recibo INICIAL cortado al tope de pactada. */
+    public const WAVE_INICIAL_LOTS = ['34', '17', '42', '45', '6', '18', '13', '14', '19', '55', '56'];
+
+    /** G2: no rejugamos extras; solo pliegue del leftover de inicial. */
+    public const WAVE_INICIAL_NO_REPLAY = ['56'];
 
     public function __construct(
         private readonly AmortizationCalculationService $calculationService,
@@ -38,12 +62,21 @@ class ReimputeSanMiguelTargetLotsCommand extends Command
         private readonly ContractLifeSheetService $lifeSheetService,
         private readonly PaymentPromiseStatusService $promiseStatusService,
         private readonly DownPaymentService $downPaymentService,
+        private readonly SanMiguelConceptReplayService $conceptReplayService,
     ) {
         parent::__construct();
     }
 
     public function handle(): int
     {
+        $wave = (string) $this->option('wave');
+        if ($wave === 'inicial') {
+            return $this->handleInicialWave();
+        }
+        if (in_array($wave, ['ad', 'bc'], true)) {
+            return $this->handleConceptWave($wave);
+        }
+
         $dryRun = (bool) $this->option('dry-run');
         $lots = $this->selectedLots();
         $this->info($dryRun
@@ -83,6 +116,515 @@ class ReimputeSanMiguelTargetLotsCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function handleConceptWave(string $wave): int
+    {
+        $dryRun = (bool) $this->option('dry-run');
+        $lots = $this->selectedConceptWaveLots($wave);
+        $label = $wave === 'bc' ? 'B+C' : 'A+D';
+        $portfolioBefore = $this->sanMiguelPortfolioTotals();
+
+        $this->info($dryRun
+            ? "Oleada {$label} dry-run: aplica en transacción y hace rollback."
+            : "Oleada {$label} persistente de lotes ".implode(', ', $lots).'.');
+
+        $report = [
+            'dry_run' => $dryRun,
+            'wave' => $wave,
+            'lots' => $lots,
+            'portfolio_before' => $portfolioBefore,
+            'lot_diffs' => [],
+            'collateral' => [],
+        ];
+
+        $apply = function () use ($lots, &$report): void {
+            foreach ($lots as $lotNumber) {
+                $contract = $this->findContract($lotNumber);
+                if (! $contract) {
+                    $this->warn("Lote {$lotNumber}: no hay contrato SM-LOTE-{$lotNumber}.");
+
+                    continue;
+                }
+
+                $before = $this->detailedSnapshot($contract);
+                $this->conceptReplayService->replay($contract->fresh());
+                $after = $this->detailedSnapshot(
+                    $contract->fresh()->load(['installments', 'transactions', 'paymentPromises', 'lot'])
+                );
+                $diff = $this->diffSnapshots($lotNumber, $before, $after);
+                $report['lot_diffs'][] = $diff;
+                foreach ($diff['status_flips'] as $flip) {
+                    $report['collateral'][] = $flip;
+                }
+            }
+        };
+
+        if ($dryRun) {
+            DB::beginTransaction();
+            try {
+                $apply();
+                $report['portfolio_after'] = $this->sanMiguelPortfolioTotals();
+            } finally {
+                DB::rollBack();
+            }
+        } else {
+            DB::transaction($apply);
+            $report['portfolio_after'] = $this->sanMiguelPortfolioTotals();
+        }
+
+        $path = app()->environment('testing')
+            ? storage_path('app/testing-sm-wave-'.$wave.'-dry-run.json')
+            : storage_path('app/sm-wave-'.$wave.'-dry-run.json');
+        file_put_contents($path, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $this->printConceptWaveReport($report);
+        $this->info("JSON: {$path}");
+
+        return self::SUCCESS;
+    }
+
+    private function handleInicialWave(): int
+    {
+        $dryRun = (bool) $this->option('dry-run');
+        $lots = $this->selectedInicialLots();
+        $portfolioBefore = $this->sanMiguelPortfolioTotals();
+
+        $this->info($dryRun
+            ? 'Oleada inicial dry-run: aplica en transacción y hace rollback.'
+            : 'Oleada inicial persistente de lotes '.implode(', ', $lots).'.');
+
+        $report = [
+            'dry_run' => $dryRun,
+            'wave' => 'inicial',
+            'lots' => $lots,
+            'portfolio_before' => $portfolioBefore,
+            'lot_diffs' => [],
+            'collateral' => [],
+        ];
+
+        $apply = function () use ($lots, &$report): void {
+            foreach ($lots as $lotNumber) {
+                $contract = $this->findContract($lotNumber);
+                if (! $contract) {
+                    $this->warn("Lote {$lotNumber}: no hay contrato SM-LOTE-{$lotNumber}.");
+
+                    continue;
+                }
+
+                $diagnosis = $this->conceptReplayService->diagnoseInicialSplit($contract);
+                $before = $this->detailedSnapshot($contract);
+                $skipReplay = in_array($lotNumber, self::WAVE_INICIAL_NO_REPLAY, true);
+                if ($skipReplay) {
+                    $folded = $this->conceptReplayService->repairInicialSplitKeepingSchedule($contract->fresh());
+                } else {
+                    $folded = $this->conceptReplayService->foldInicialSplits($contract->fresh());
+                    $this->conceptReplayService->replay($contract->fresh());
+                }
+                $after = $this->detailedSnapshot(
+                    $contract->fresh()->load(['installments', 'transactions', 'paymentPromises', 'lot'])
+                );
+                $afterDiagnosis = $this->conceptReplayService->diagnoseInicialSplit($contract->fresh());
+                $diff = $this->diffSnapshots($lotNumber, $before, $after);
+                $diff['diagnosis'] = $diagnosis;
+                $diff['after_diagnosis'] = $afterDiagnosis;
+                $diff['folded'] = $folded;
+                $diff['replay'] = ! $skipReplay;
+                $diff['group'] = $this->inicialLotGroup($lotNumber);
+                $diff['overage_destino'] = $this->inicialOverageDestino($diagnosis, $after);
+                $report['lot_diffs'][] = $diff;
+                foreach ($diff['status_flips'] as $flip) {
+                    $report['collateral'][] = $flip;
+                }
+            }
+        };
+
+        if ($dryRun) {
+            DB::beginTransaction();
+            try {
+                $apply();
+                $report['portfolio_after'] = $this->sanMiguelPortfolioTotals();
+            } finally {
+                DB::rollBack();
+            }
+        } else {
+            DB::transaction($apply);
+            $report['portfolio_after'] = $this->sanMiguelPortfolioTotals();
+        }
+
+        $path = app()->environment('testing')
+            ? storage_path('app/testing-sm-wave-inicial-dry-run.json')
+            : storage_path('app/sm-wave-inicial-dry-run.json');
+        file_put_contents($path, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        $this->printInicialWaveReport($report);
+        $this->info("JSON: {$path}");
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function selectedInicialLots(): array
+    {
+        $requested = array_map('strval', (array) $this->option('lot'));
+        if ($requested === []) {
+            return self::WAVE_INICIAL_LOTS;
+        }
+
+        return array_values(array_intersect(self::WAVE_INICIAL_LOTS, $requested));
+    }
+
+    private function inicialLotGroup(string $lotNumber): string
+    {
+        if (in_array($lotNumber, self::WAVE_INICIAL_NO_REPLAY, true)) {
+            return 'G2 (sin replay)';
+        }
+        if (in_array($lotNumber, self::WAVE_B_LOTS, true)) {
+            return 'G3 (replay también aplica extras B+C no persistidos)';
+        }
+        if (in_array($lotNumber, self::WAVE_C_LOTS, true)) {
+            return 'G4 (replay también aplica extras B+C no persistidos)';
+        }
+        if (in_array($lotNumber, self::WAVE_AD_LOTS, true)) {
+            return 'A+D ya persistido';
+        }
+
+        return 'sin grupo especial';
+    }
+
+    /**
+     * @param  array<string, mixed>  $diagnosis
+     * @param  array<string, mixed>  $after
+     */
+    private function inicialOverageDestino(array $diagnosis, array $after): string
+    {
+        $splits = $diagnosis['splits'] ?? [];
+        if ($splits === []) {
+            return 'sin leftover partido';
+        }
+        $leftover = $splits[0]['leftover'] ?? '0.00';
+        $mora = (bool) ($splits[0]['mora_at_payment'] ?? false);
+        $dust = (bool) ($splits[0]['dust'] ?? false);
+        if ($mora) {
+            return 'mora en #1 (vencida a la fecha del recibo)';
+        }
+        if ($dust) {
+            return 'contract_residual_balances (polvo < $5.000)';
+        }
+        if (bccomp((string) $leftover, '0.00', 2) > 0) {
+            return 'sobre-pactada en #0 (recibo entero en la inicial)';
+        }
+
+        return 'sin overage';
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     */
+    private function printInicialWaveReport(array $report): void
+    {
+        $before = $report['portfolio_before'];
+        $after = $report['portfolio_after'];
+        $this->line('');
+        $this->info('=== Portafolio SM ===');
+        $this->line("recaudo before={$before['collected']} after={$after['collected']} txs before={$before['transactions']} after={$after['transactions']}");
+
+        foreach ($report['lot_diffs'] as $diff) {
+            $diag = $diff['diagnosis'] ?? [];
+            $afterDiag = $diff['after_diagnosis'] ?? [];
+            $this->line('');
+            $this->info("=== Lote {$diff['lot']} · {$diff['group']} ===");
+            $this->line("replay=".($diff['replay'] ? 'sí' : 'no (G2)')." destino={$diff['overage_destino']}");
+            $this->line("pactada=".($diag['pactada'] ?? '-'));
+            foreach ($diag['splits'] ?? [] as $split) {
+                $this->line(sprintf(
+                    '  HV rec %s %s = DP %s + leftover %s (fecha %s, mora=%s, polvo=%s)',
+                    $split['receipt'],
+                    $split['hv_amount'],
+                    $split['dp_part'],
+                    $split['leftover'],
+                    $split['date'],
+                    $split['mora_at_payment'] ? 'sí' : 'no',
+                    $split['dust'] ? 'sí' : 'no',
+                ));
+                foreach ($split['allocations'] as $alloc) {
+                    $this->line(sprintf(
+                        '    leftover hoy → #%s amt=%s i=%s p=%s',
+                        $alloc['n'] ?? '?',
+                        $alloc['amount'],
+                        $alloc['interest'],
+                        $alloc['principal'],
+                    ));
+                }
+            }
+            $i0b = $diag['inicial'] ?? [];
+            $i0a = $afterDiag['inicial'] ?? [];
+            $i1b = $diag['cuota_1'] ?? [];
+            $i1a = $afterDiag['cuota_1'] ?? [];
+            $this->line(sprintf(
+                '  #0 pp %s→%s debt %s→%s st %s→%s',
+                $i0b['principal_paid'] ?? '-',
+                $i0a['principal_paid'] ?? '-',
+                $i0b['quota_debt'] ?? '-',
+                $i0a['quota_debt'] ?? '-',
+                $i0b['status'] ?? '-',
+                $i0a['status'] ?? '-',
+            ));
+            $this->line(sprintf(
+                '  #1 extra %s→%s ip %s→%s pp %s→%s debt %s→%s st %s→%s',
+                $i1b['extra_payment'] ?? '-',
+                $i1a['extra_payment'] ?? '-',
+                $i1b['interest_paid'] ?? '-',
+                $i1a['interest_paid'] ?? '-',
+                $i1b['principal_paid'] ?? '-',
+                $i1a['principal_paid'] ?? '-',
+                $i1b['quota_debt'] ?? '-',
+                $i1a['quota_debt'] ?? '-',
+                $i1b['status'] ?? '-',
+                $i1a['status'] ?? '-',
+            ));
+            $this->line("collected {$diff['collected']['before']} → {$diff['collected']['after']} txs {$diff['tx_count']['before']} → {$diff['tx_count']['after']}");
+            $lsB = $diff['life_sheet']['before'];
+            $lsA = $diff['life_sheet']['after'];
+            $this->line("unimputed {$lsB['unimputed']} → {$lsA['unimputed']} residual {$diff['residual_pending']['before']} → {$diff['residual_pending']['after']}");
+            foreach ($diff['changed_rows'] as $n => $pair) {
+                if (! in_array((string) $n, ['0', '1'], true)) {
+                    continue;
+                }
+                $b = $pair['before'];
+                $a = $pair['after'];
+                $this->line(sprintf(
+                    '  #%s %s→%s ip %s→%s pp %s→%s extra %s→%s rem %s→%s debt %s→%s',
+                    $n,
+                    $b['status'] ?? '-',
+                    $a['status'] ?? '-',
+                    $b['interest_paid'] ?? '-',
+                    $a['interest_paid'] ?? '-',
+                    $b['principal_paid'] ?? '-',
+                    $a['principal_paid'] ?? '-',
+                    $b['extra_payment'] ?? '-',
+                    $a['extra_payment'] ?? '-',
+                    $b['remaining_balance'] ?? '-',
+                    $a['remaining_balance'] ?? '-',
+                    $b['quota_debt'] ?? '-',
+                    $a['quota_debt'] ?? '-',
+                ));
+            }
+        }
+
+        $this->line('');
+        $this->info('=== Efectos colaterales de estado ===');
+        if ($report['collateral'] === []) {
+            $this->line('Ninguno.');
+
+            return;
+        }
+        foreach ($report['collateral'] as $flip) {
+            $mark = $flip['kind'] === 'paid_to_open' ? '⚠ paid→abierta' : $flip['kind'];
+            $this->line("Lote {$flip['lot']} #{$flip['installment']} {$flip['from']} → {$flip['to']} ({$mark})");
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function selectedConceptWaveLots(string $wave): array
+    {
+        $pool = $wave === 'bc' ? self::WAVE_BC_LOTS : self::WAVE_AD_LOTS;
+        $requested = array_map('strval', (array) $this->option('lot'));
+        if ($requested === []) {
+            return $pool;
+        }
+
+        return array_values(array_intersect($pool, $requested));
+    }
+
+    /**
+     * @return array{collected: string, transactions: int, contracts: int}
+     */
+    private function sanMiguelPortfolioTotals(): array
+    {
+        $contracts = Contract::query()
+            ->where('contract_number', 'like', 'SM-LOTE-%')
+            ->whereNull('deleted_at')
+            ->with('transactions')
+            ->get();
+
+        $collected = '0.00';
+        $txCount = 0;
+        foreach ($contracts as $contract) {
+            foreach ($contract->transactions as $tx) {
+                $collected = $this->money(bcadd($collected, $this->money($tx->amount), 2));
+                $txCount++;
+            }
+        }
+
+        return [
+            'collected' => $collected,
+            'transactions' => $txCount,
+            'contracts' => $contracts->count(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function detailedSnapshot(Contract $contract): array
+    {
+        $contract->loadMissing(['installments', 'transactions']);
+        $summary = $this->lifeSheetService->build($contract)['summary'];
+        $rows = [];
+        foreach ($contract->amortizationInstallments()->orderBy('installment_number')->get() as $row) {
+            $n = (int) $row->installment_number;
+            $rows[$n] = [
+                'status' => $row->status instanceof AmortizationStatus
+                    ? $row->status->value
+                    : (string) $row->status,
+                'interest_paid' => $this->money($row->interest_paid),
+                'principal_paid' => $this->money($row->principal_paid),
+                'extra_payment' => $this->money($row->extra_payment),
+                'remaining_balance' => $this->money($row->remaining_balance),
+                'quota_debt' => $this->money($row->quota_debt),
+                'interest_value' => $this->money($row->interest_value),
+                'principal_value' => $this->money($row->principal_value),
+            ];
+        }
+
+        $residual = $this->money(ContractResidualBalance::query()
+            ->where('contract_id', $contract->id)
+            ->where('status', 'pendiente')
+            ->sum('amount'));
+
+        return [
+            'contract_id' => $contract->id,
+            'status' => $contract->status instanceof ContractStatus
+                ? $contract->status->value
+                : (string) $contract->status,
+            'down_pending' => DownPaymentLedger::pending($contract),
+            'collected' => $this->money($contract->transactions->sum(fn (Transaction $tx) => (float) $tx->amount)),
+            'tx_count' => $contract->transactions->count(),
+            'life_sheet' => [
+                'unimputed' => $summary['unimputed'],
+                'principal_paid' => $summary['principal_paid'],
+                'interest_paid' => $summary['interest_paid'],
+            ],
+            'residual_pending' => $residual,
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @return array<string, mixed>
+     */
+    private function diffSnapshots(string $lotNumber, array $before, array $after): array
+    {
+        $changed = [];
+        $flips = [];
+        $numbers = array_unique([...array_keys($before['rows']), ...array_keys($after['rows'])]);
+        sort($numbers, SORT_NUMERIC);
+
+        foreach ($numbers as $n) {
+            $b = $before['rows'][$n] ?? null;
+            $a = $after['rows'][$n] ?? null;
+            if ($b === $a) {
+                continue;
+            }
+            $changed[(string) $n] = ['before' => $b, 'after' => $a];
+            $bStatus = $b['status'] ?? null;
+            $aStatus = $a['status'] ?? null;
+            if ($bStatus !== $aStatus) {
+                $flips[] = [
+                    'lot' => $lotNumber,
+                    'installment' => $n,
+                    'from' => $bStatus,
+                    'to' => $aStatus,
+                    'kind' => $this->statusFlipKind($bStatus, $aStatus),
+                ];
+            }
+        }
+
+        return [
+            'lot' => $lotNumber,
+            'contract_status' => ['before' => $before['status'], 'after' => $after['status']],
+            'down_pending' => ['before' => $before['down_pending'], 'after' => $after['down_pending']],
+            'collected' => ['before' => $before['collected'], 'after' => $after['collected']],
+            'tx_count' => ['before' => $before['tx_count'], 'after' => $after['tx_count']],
+            'life_sheet' => ['before' => $before['life_sheet'], 'after' => $after['life_sheet']],
+            'residual_pending' => ['before' => $before['residual_pending'], 'after' => $after['residual_pending']],
+            'changed_rows' => $changed,
+            'status_flips' => $flips,
+        ];
+    }
+
+    private function statusFlipKind(?string $from, ?string $to): string
+    {
+        if ($from === 'paid' && in_array($to, ['overdue', 'partial', 'pending'], true)) {
+            return 'paid_to_open';
+        }
+        if (in_array($from, ['overdue', 'partial', 'pending'], true) && $to === 'paid') {
+            return 'open_to_paid';
+        }
+
+        return 'other';
+    }
+
+    /**
+     * @param  array<string, mixed>  $report
+     */
+    private function printConceptWaveReport(array $report): void
+    {
+        $before = $report['portfolio_before'];
+        $after = $report['portfolio_after'];
+        $this->line('');
+        $this->info('=== Portafolio SM ===');
+        $this->line("recaudo before={$before['collected']} after={$after['collected']} txs before={$before['transactions']} after={$after['transactions']}");
+
+        foreach ($report['lot_diffs'] as $diff) {
+            $this->line('');
+            $this->info("=== Lote {$diff['lot']} ===");
+            $this->line("status {$diff['contract_status']['before']} → {$diff['contract_status']['after']}");
+            $this->line("inicial pending {$diff['down_pending']['before']} → {$diff['down_pending']['after']}");
+            $this->line("collected {$diff['collected']['before']} → {$diff['collected']['after']} txs {$diff['tx_count']['before']} → {$diff['tx_count']['after']}");
+            $lsB = $diff['life_sheet']['before'];
+            $lsA = $diff['life_sheet']['after'];
+            $this->line("unimputed {$lsB['unimputed']} → {$lsA['unimputed']} pp {$lsB['principal_paid']} → {$lsA['principal_paid']} ip {$lsB['interest_paid']} → {$lsA['interest_paid']}");
+            $this->line("residual {$diff['residual_pending']['before']} → {$diff['residual_pending']['after']}");
+
+            foreach ($diff['changed_rows'] as $n => $pair) {
+                $b = $pair['before'];
+                $a = $pair['after'];
+                $this->line(sprintf(
+                    '  #%s %s→%s ip %s→%s pp %s→%s extra %s→%s rem %s→%s debt %s→%s',
+                    $n,
+                    $b['status'] ?? '-',
+                    $a['status'] ?? '-',
+                    $b['interest_paid'] ?? '-',
+                    $a['interest_paid'] ?? '-',
+                    $b['principal_paid'] ?? '-',
+                    $a['principal_paid'] ?? '-',
+                    $b['extra_payment'] ?? '-',
+                    $a['extra_payment'] ?? '-',
+                    $b['remaining_balance'] ?? '-',
+                    $a['remaining_balance'] ?? '-',
+                    $b['quota_debt'] ?? '-',
+                    $a['quota_debt'] ?? '-',
+                ));
+            }
+        }
+
+        $this->line('');
+        $this->info('=== Efectos colaterales de estado ===');
+        if ($report['collateral'] === []) {
+            $this->line('Ninguno.');
+
+            return;
+        }
+        foreach ($report['collateral'] as $flip) {
+            $mark = $flip['kind'] === 'paid_to_open' ? '⚠ paid→abierta' : $flip['kind'];
+            $this->line("Lote {$flip['lot']} #{$flip['installment']} {$flip['from']} → {$flip['to']} ({$mark})");
+        }
     }
 
     /**
@@ -602,16 +1144,10 @@ class ReimputeSanMiguelTargetLotsCommand extends Command
             'projected_balance' => $this->maxZero(bcsub($this->money($installment->projected_balance), $extra, 2)),
         ]);
 
-        $contract->amortizationInstallments()
-            ->where('installment_number', '>', (int) $installment->installment_number)
-            ->orderBy('installment_number')
-            ->get()
-            ->each(function (AmortizationInstallment $row) use ($extra) {
-                $row->update([
-                    'remaining_balance' => $this->maxZero(bcsub($this->money($row->remaining_balance), $extra, 2)),
-                    'projected_balance' => $this->maxZero(bcsub($this->money($row->projected_balance), $extra, 2)),
-                ]);
-            });
+        $this->calculationService->recalculateFutureKeepingQuota(
+            $contract,
+            (int) $installment->installment_number,
+        );
     }
 
     private function isGarbageExtra(string $extra): bool

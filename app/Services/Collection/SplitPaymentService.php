@@ -11,7 +11,10 @@ use App\Models\Receipt;
 use App\Models\Transaction;
 use App\Models\TransactionAllocation;
 use App\Services\Financial\Transaction\DownPayment\DownPaymentService;
+use App\Support\ContractCollectionGuard;
+use App\Support\ContractFinancialLock;
 use App\Support\DownPaymentLedger;
+use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
@@ -53,6 +56,8 @@ class SplitPaymentService
         ?PaymentMethod $paymentMethod = null,
         ?string $notes = null,
         ?string $paymentOption = null,
+        ?string $receiptNumber = null,
+        ?int $bankAccountId = null,
     ): array {
         return DB::transaction(function () use (
             $contractId,
@@ -64,8 +69,13 @@ class SplitPaymentService
             $paymentMethod,
             $notes,
             $paymentOption,
+            $receiptNumber,
+            $bankAccountId,
         ) {
-            $contract = Contract::query()->with('lot')->findOrFail($contractId);
+            $contract = ContractFinancialLock::acquire($contractId);
+            ContractCollectionGuard::assertAcceptsPayments($contract);
+            ReceiptNumber::assertUnusedOnContract($contract->id, $receiptNumber);
+            $contract->load('lot');
             $initialPart = $this->money($toDownPayment);
             $regularPart = $this->money($toInstallments);
             $total = bcadd($initialPart, $regularPart, 2);
@@ -74,13 +84,17 @@ class SplitPaymentService
 
             $this->assertPartsAreValid($contract, $initialPart, $regularPart);
 
+            $normalizedReceipt = ReceiptNumber::normalize($receiptNumber);
             $transaction = Transaction::create([
                 'contract_id' => $contract->id,
                 'transaction_type' => TransactionType::SPLIT_PAYMENT,
                 'amount' => $total,
                 'transaction_date' => $effectiveDate->toDateString(),
                 'payment_method' => $method,
-                'notes' => $notes,
+                'bank_account_id' => $bankAccountId,
+                'notes' => ReceiptNumber::mergeIntoNotes($notes, $normalizedReceipt),
+                'receipt_number' => $normalizedReceipt,
+                'payment_option' => $paymentOption ? strtolower(trim($paymentOption)) : null,
             ]);
 
             if ($receipt) {

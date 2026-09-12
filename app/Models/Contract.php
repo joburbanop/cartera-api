@@ -177,6 +177,11 @@ class Contract extends Model
         return $this->installments();
     }
 
+    public function residualBalances(): HasMany
+    {
+        return $this->hasMany(ContractResidualBalance::class);
+    }
+
     public function paymentPromises(): HasMany
     {
         return $this->hasMany(ContractPaymentPromise::class)->orderBy('payment_number', 'asc');

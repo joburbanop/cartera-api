@@ -75,6 +75,10 @@ class PaymentPromiseStatusService
         $total = '0.00';
 
         foreach ($transactions as $tx) {
+            if ($tx->reversed_at || $tx->transaction_type === TransactionType::PAYMENT_REVERSAL) {
+                continue;
+            }
+
             $fromAllocations = '0.00';
             foreach ($tx->allocations as $allocation) {
                 $target = $allocation->target instanceof AllocationTarget

@@ -7,6 +7,7 @@ use App\Enums\LotStatus;
 use App\Enums\RoleName;
 use App\Enums\TransactionType;
 use App\Models\AmortizationInstallment;
+use App\Models\BankAccount;
 use App\Models\Contract;
 use App\Models\Customer;
 use App\Models\Lot;
@@ -14,6 +15,7 @@ use App\Models\Project;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Support\DownPaymentLedger;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -98,6 +100,12 @@ function splitContract(array $overrides = []): Contract
 beforeEach(function () {
     User::factory()->create();
     $this->actingAsRole(RoleName::ADMINISTRADOR->value);
+    $this->bankAccount = BankAccount::query()->create([
+        'bank_name' => 'Bancolombia',
+        'account_number' => '0101010101',
+        'account_type' => 'savings',
+        'holder_name' => 'Constructora QA',
+    ]);
 });
 
 it('registra un solo movimiento por el total y guarda el reparto', function () {
@@ -111,7 +119,9 @@ it('registra un solo movimiento por el total y guarda el reparto', function () {
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
         'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
         'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258',
     ])->assertCreated();
 
     $transactions = Transaction::query()
@@ -147,8 +157,9 @@ it('salda la inicial y activa el contrato aunque el pago haya venido repartido',
         'amount' => 2100000,
         'to_down_payment' => 200000,
         'to_installments' => 1900000,
-        'payment_date' => '2026-02-10',
-        'selected_installments' => [$cuota1->id],
+        'payment_date' => '2026-02-10',        'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,        'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258',
     ])->assertCreated();
 
     $contract->refresh();
@@ -180,6 +191,7 @@ it('rechaza el pago si el reparto no suma el total recibido', function () {
         // Faltan $100.000: la conciliación bancaria no cuadraría.
         'to_installments' => 1800000,
         'payment_date' => '2026-02-10',
+        'receipt_number' => '0258',
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['amount']);
@@ -197,6 +209,7 @@ it('rechaza que la parte de la inicial supere su saldo pendiente', function () {
         'to_down_payment' => 500000,
         'to_installments' => 1600000,
         'payment_date' => '2026-02-10',
+        'receipt_number' => '0258',
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['to_down_payment']);
@@ -220,6 +233,7 @@ it('rechaza dividir cuando la inicial ya está saldada', function () {
         'to_down_payment' => 200000,
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
+        'receipt_number' => '0258',
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['to_down_payment']);
@@ -256,7 +270,10 @@ it('expone el reparto en el listado de transacciones del contrato', function () 
         'to_down_payment' => 200000,
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
+        'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
         'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258',
     ])->assertCreated();
 
     $response = $this->getJson("/api/contracts/{$contract->id}/transactions")->assertOk();
@@ -287,7 +304,10 @@ it('rechaza el pago dividido si la parte regular supera la cuota y no hay destin
         'to_down_payment' => 200000,
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
+        'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
         'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258',
     ])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['payment_option'])
@@ -313,8 +333,10 @@ it('cuando la parte regular supera la cuota, el extra sale como abono a capital'
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
         'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
         'selected_installments' => [$cuota1->id],
         'payment_option' => 'reducir_plazo',
+        'receipt_number' => '0258',
     ])->assertCreated();
 
     $split = Transaction::query()
@@ -353,13 +375,14 @@ it('la hoja de vida muestra el pago como una sola fila con su desglose', functio
         'to_installments' => 1900000,
         'payment_date' => '2026-02-10',
         'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258',
     ])->assertCreated();
 
     $rows = $this->getJson("/api/contracts/{$contract->id}/life-sheet")
         ->assertOk()
         ->json('data.rows');
 
-    $split = collect($rows)->firstWhere('concept', 'CUOTA INICIAL + CUOTA');
+    $split = collect($rows)->firstWhere('concept', 'CUOTA INICIAL + CUOTA 1');
 
     expect($split)->not->toBeNull()
         ->and((float) $split['amount'])->toBe(2100000.0)
@@ -367,4 +390,129 @@ it('la hoja de vida muestra el pago como una sola fila con su desglose', functio
 
     // Un solo movimiento en la hoja de vida: dos filas descuadrarían el saldo.
     expect(collect($rows)->where('amount', '2100000.00'))->toHaveCount(1);
+});
+
+it('guarda Recibo # en el movimiento dividido', function () {
+    $contract = splitContract();
+    $cuota1 = $contract->amortizationInstallments()->where('installment_number', 1)->firstOrFail();
+
+    $this->postJson('/api/collections/split', [
+        'contract_id' => $contract->id,
+        'amount' => 2100000,
+        'to_down_payment' => 200000,
+        'to_installments' => 1900000,
+        'payment_date' => '2026-02-10',
+        'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
+        'selected_installments' => [$cuota1->id],
+        'receipt_number' => '0258, 0289',
+    ])->assertCreated();
+
+    $tx = Transaction::query()
+        ->where('contract_id', $contract->id)
+        ->where('transaction_type', TransactionType::SPLIT_PAYMENT)
+        ->first();
+
+    expect($tx->receipt_number)->toBe('0258-0289')
+        ->and($tx->notes)->toBe('Recibo #0258-0289');
+});
+
+it('reparte #0 + dos regulares cuando el monto cubre la inicial y solo parte de las cuotas', function () {
+    Carbon::setTestNow(Carbon::parse('2026-09-10 12:00:00'));
+
+    $contract = splitContract([
+        'status' => ContractStatus::ACTIVO,
+        'down_payment_pactada' => '1000.00',
+        'sale_price' => '3000.00',
+        'interest_rate' => '0.00',
+        'term_months' => 2,
+    ]);
+    $contract->lot->update(['status' => LotStatus::VENDIDO]);
+    $contract->transactions()->delete();
+    $contract->amortizationInstallments()->delete();
+
+    $inicial = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 0,
+        'due_date' => '2026-01-10',
+        'installment_value' => '1000.00',
+        'extra_payment' => '0.00',
+        'interest_value' => '0.00',
+        'principal_value' => '1000.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '1000.00',
+        'remaining_balance' => '2000.00',
+        'projected_balance' => '2000.00',
+        'status' => AmortizationStatus::PENDING,
+    ]);
+    $cuota1 = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 1,
+        'due_date' => '2026-08-10',
+        'installment_value' => '1000.00',
+        'extra_payment' => '0.00',
+        'interest_value' => '0.00',
+        'principal_value' => '1000.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '1000.00',
+        'remaining_balance' => '2000.00',
+        'projected_balance' => '2000.00',
+        'status' => AmortizationStatus::PENDING,
+    ]);
+    $cuota2 = AmortizationInstallment::query()->create([
+        'contract_id' => $contract->id,
+        'installment_number' => 2,
+        'due_date' => '2026-10-10',
+        'installment_value' => '1000.00',
+        'extra_payment' => '0.00',
+        'interest_value' => '0.00',
+        'principal_value' => '1000.00',
+        'interest_paid' => '0.00',
+        'principal_paid' => '0.00',
+        'quota_debt' => '1000.00',
+        'remaining_balance' => '1000.00',
+        'projected_balance' => '1000.00',
+        'status' => AmortizationStatus::PENDING,
+    ]);
+
+    $this->postJson('/api/collections/split', [
+        'contract_id' => $contract->id,
+        'amount' => 1500,
+        'to_down_payment' => 1000,
+        'to_installments' => 500,
+        'payment_date' => '2026-09-10',
+        'payment_method' => 'transfer',
+        'bank_account_id' => $this->bankAccount->id,
+        'selected_installments' => [$inicial->id, $cuota1->id, $cuota2->id],
+        'receipt_number' => '0420',
+    ])->assertCreated();
+
+    $tx = Transaction::query()
+        ->where('contract_id', $contract->id)
+        ->where('transaction_type', TransactionType::SPLIT_PAYMENT)
+        ->firstOrFail();
+
+    expect((float) $tx->amount)->toBe(1500.0)
+        ->and($contract->transactions()->count())->toBe(1);
+
+    $inicial->refresh();
+    $cuota1->refresh();
+    $cuota2->refresh();
+
+    expect($inicial->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $inicial->quota_debt)->toBe(0.0)
+        ->and((float) $cuota1->quota_debt)->toBe(500.0)
+        ->and($cuota1->status)->not->toBe(AmortizationStatus::PAID)
+        ->and($cuota2->status)->toBe(AmortizationStatus::PENDING)
+        ->and((float) $cuota2->quota_debt)->toBe(1000.0);
+
+    $down = $tx->allocations->firstWhere('target', AllocationTarget::DOWN_PAYMENT);
+    $regulars = $tx->allocations->where('target', AllocationTarget::INSTALLMENT);
+
+    expect((float) $down->amount)->toBe(1000.0)
+        ->and((float) $regulars->sum('amount'))->toBe(500.0);
+
+    Carbon::setTestNow();
 });

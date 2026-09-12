@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\PaymentMethod;
+use App\Services\Collection\CascadeCollectionService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -27,21 +28,20 @@ class StoreSplitPaymentRequest extends FormRequest
             'amount' => ['required', 'numeric', 'min:1'],
             'to_down_payment' => ['required', 'numeric', 'gt:0'],
             'to_installments' => ['required', 'numeric', 'gt:0'],
-            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas'],
+            'payment_option' => ['nullable', 'string', 'in:reducir_plazo,reducir_cuota,adelantar_cuotas,abono_capital'],
             'transaction_date' => ['nullable', 'date'],
             'payment_date' => ['nullable', 'date'],
             'selected_installments' => ['nullable', 'array'],
             'selected_installments.*' => [
                 'integer',
                 Rule::exists('amortization_installments', 'id')
-                    ->where(fn ($query) => $query
-                        ->where('contract_id', $contractId)
-                        ->where('installment_number', '>', 0)
-                    ),
+                    ->where(fn ($query) => $query->where('contract_id', $contractId)),
             ],
             'receipt' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            'payment_method' => ['nullable', Rule::enum(PaymentMethod::class)],
+            'payment_method' => ['nullable', PaymentMethod::ruleForNewPayments()],
+            'bank_account_id' => ['nullable', 'integer', 'exists:bank_accounts,id', Rule::requiredIf(fn () => strtolower((string) $this->input('payment_method', '')) === 'transfer')],
             'notes' => ['nullable', 'string', 'max:500'],
+            'receipt_number' => ['required', 'string', 'max:80'],
         ];
     }
 
@@ -73,9 +73,9 @@ class StoreSplitPaymentRequest extends FormRequest
         return [
             'to_down_payment.gt' => 'Indica cuánto del pago va a la cuota inicial.',
             'to_installments.gt' => 'Indica cuánto del pago va a la cuota regular.',
-            'selected_installments.*.exists' => 'No puedes incluir la Cuota Inicial entre las cuotas regulares.',
-            'payment_option.required' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
-            'payment_option.in' => \App\Services\Collection\CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'selected_installments.*.exists' => 'La cuota no pertenece a este contrato.',
+            'payment_option.required' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
+            'payment_option.in' => CascadeCollectionService::SURPLUS_ACTION_REQUIRED,
         ];
     }
 

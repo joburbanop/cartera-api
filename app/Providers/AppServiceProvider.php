@@ -10,13 +10,14 @@ use App\Services\Collection\TransactionAllocationRecorder;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Financial\Transaction\ExtraordinaryPayment\ExtraordinaryPaymentService;
 use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
+use App\Services\Residual\ResidualBalanceService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
-use Laravel\Sanctum\Sanctum;
 use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -30,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(InstallmentPaymentAllocator::class),
                 $app->make(TransactionAllocationRecorder::class),
                 $app->make(PaymentPromiseAllocationService::class),
+                $app->make(ResidualBalanceService::class),
             );
         });
     }
@@ -62,17 +64,18 @@ class AppServiceProvider extends ServiceProvider
 
         // Interceptamos la validación del Token
         Sanctum::authenticateAccessTokensUsing(function (PersonalAccessToken $token, $isValid) {
-            if (!$isValid) {
+            if (! $isValid) {
                 return false;
             }
 
             // Calculamos el tiempo desde la última petición que hizo el usuario
             $lastActivity = $token->last_used_at ?? $token->created_at;
-            $inactivityLimit = (int) config('sanctum.token_inactivity_minutes', 5);
+            $inactivityLimit = (int) config('sanctum.token_inactivity_minutes', 120);
 
             // Si el tiempo sin actividad supera nuestros 5 minutos...
             if (now()->diffInMinutes($lastActivity) >= $inactivityLimit) {
                 $token->delete(); // Borramos la llave de la base de datos
+
                 return false;     // Le cerramos la puerta (Error 401)
             }
 
