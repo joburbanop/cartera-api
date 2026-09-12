@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Schema;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Contract extends Model
 {
@@ -225,6 +226,11 @@ class Contract extends Model
             $value,
             $field
         )->withTrashed()->first();
+    }
+
+    public function withdrawal(): HasOne
+    {
+        return $this->hasOne(Withdrawal::class);
     }
 
 }

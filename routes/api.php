@@ -18,6 +18,7 @@ use App\Http\Controllers\Sales\RefinanceContractController;
 use App\Http\Controllers\TransactionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Financial\WithdrawalController;
 
 
 Route::get('/user', function (Request $request) {
@@ -205,4 +206,9 @@ Route::middleware(['auth:sanctum', 'password.changed'])->group(function () {
         ->middleware('permission:lots.manage');
     Route::patch('/lots/{lot}/activate', [LotController::class, 'activate'])
         ->middleware('permission:lots.manage');
+
+    Route::post('/withdrawals/preventa', [WithdrawalController::class, 'store'])
+        ->middleware('permission:contracts.rescind');
+    Route::post('/withdrawals/preventa/calculate', [WithdrawalController::class, 'calculatePreventa'])
+        ->middleware('permission:contracts.rescind');
 });

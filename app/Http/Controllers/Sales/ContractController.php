@@ -59,24 +59,28 @@ class ContractController extends Controller
         $request->merge(['customer_id' => $customer->id]);
     }
 
-    public function index(Request $request): JsonResponse
-    {
-        $lotId = $request->filled('lot_id') ? (int) $request->query('lot_id') : null;
-        $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
-        $contracts = $this->contractService->getAllContracts($perPage, $lotId, [
-            'contract_number' => $request->query('contract_number'),
-            'customer' => $request->query('customer'),
-            'project_id' => $request->query('project_id'),
-            'lot_number' => $request->query('lot_number'),
-            'status' => $request->query('status'),
-            'cartera' => $request->query('cartera'),
-            'start_date_from' => $request->query('start_date_from'),
-            'start_date_to' => $request->query('start_date_to'),
-        ]);
+   public function index(Request $request): JsonResponse
+        {
+            $lotId = $request->filled('lot_id') ? (int) $request->query('lot_id') : null;
+            $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
 
-        return $this->successResponse($contracts, 'Lista de contratos obtenida exitosamente.');
-    }
+            $contracts = $this->contractService->getAllContracts($perPage, $lotId, [
+                'contract_number' => $request->query('contract_number'),
+                'customer' => $request->query('customer'),
+                'project_id' => $request->query('project_id'),
+                'lot_number' => $request->query('lot_number'),
+                'status' => $request->query('status'),
+                'exclude_status' => $request->query('exclude_status'),
+                'cartera' => $request->query('cartera'),
+                'start_date_from' => $request->query('start_date_from'),
+                'start_date_to' => $request->query('start_date_to'),
+            ]);
 
+            return $this->successResponse(
+                $contracts,
+                'Lista de contratos obtenida exitosamente.'
+            );
+        }
     public function archived(Request $request): JsonResponse
         {
             $perPage = min(100, max(1, (int) $request->integer('per_page', 15)));
