@@ -332,8 +332,9 @@ class InstallmentPaymentAllocator
     /**
      * Primera cuota regular pendiente con due_date >= $asOf.
      * No es unpaidCurrentInstallments: esa se limita al mes calendario de $asOf.
-     * Aquí cabe la corriente de ese mes o la siguiente futura (sobrante
-     * extraordinario sin selección, cuando Hueco A no inyectó corriente).
+     * Solo se usa cuando no hay mora recién cubierta cuya siguiente # siga
+     * al día (ese sobrante se ancla en la mora). Aquí cabe pagar una #
+     * futura cuando la cola mora+corriente del mes vino vacía.
      */
     public function firstNonOverduePending(
         Contract $contract,

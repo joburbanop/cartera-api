@@ -179,3 +179,117 @@ it('Hueco B caso 2: sin seleccion, siguiente SI vencida, sin opcion → sobrante
         ->and($third->status)->toBe(AmortizationStatus::PENDING)
         ->and($third->quota_debt)->toBe('1000.00');
 });
+
+it('Hueco B tarde: pago 9 días después del vencimiento, siguiente al día, abono_capital pega el sobrante en #1', function () {
+    $suffix = (string) random_int(100000, 999999);
+    $contract = huecoBContract($suffix);
+    $first = huecoBInstallment($contract, 1, '2026-05-15', '2000.00');
+    huecoBInstallment($contract, 2, '2026-06-15', '1000.00');
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1373.91',
+        'abono_capital',
+        Carbon::parse('2026-05-24'),
+        [],
+    );
+
+    $first->refresh();
+    $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
+
+    expect($result['amount_applied'])->toBe('1373.91')
+        ->and($result['installments'])->toHaveCount(1)
+        ->and($result['installments'][0]['installment_number'])->toBe(1)
+        ->and($first->status)->toBe(AmortizationStatus::PAID)
+        ->and($first->extra_payment)->toBe('373.91')
+        ->and($second)->not->toBeNull()
+        ->and($second->status)->toBe(AmortizationStatus::PENDING)
+        ->and($second->quota_debt)->toBe('1000.00')
+        ->and((float) $second->extra_payment)->toBe(0.0)
+        ->and((float) $second->interest_paid)->toBe(0.0);
+});
+
+it('Hueco B tarde: reducir_plazo y reducir_cuota también anclan el extra en la mora cubierta', function (string $option) {
+    $suffix = (string) random_int(100000, 999999);
+    $contract = huecoBContract($suffix);
+    $first = huecoBInstallment($contract, 1, '2026-05-15', '2000.00');
+    huecoBInstallment($contract, 2, '2026-06-15', '1000.00');
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1373.91',
+        $option,
+        Carbon::parse('2026-05-24'),
+        [],
+    );
+
+    $first->refresh();
+    $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
+
+    expect($result['amount_applied'])->toBe('1373.91')
+        ->and($result['installments'])->toHaveCount(1)
+        ->and($first->status)->toBe(AmortizationStatus::PAID)
+        ->and($first->extra_payment)->toBe('373.91')
+        ->and($second)->not->toBeNull()
+        ->and($second->status)->toBe(AmortizationStatus::PENDING)
+        ->and((float) $second->extra_payment)->toBe(0.0);
+})->with(['reducir_plazo', 'reducir_cuota']);
+
+it('Hueco B tarde: adelantar_cuotas sí lleva el sobrante a #2 aunque no esté vencida', function () {
+    $suffix = (string) random_int(100000, 999999);
+    $contract = huecoBContract($suffix);
+    $first = huecoBInstallment($contract, 1, '2026-05-15', '2000.00');
+    huecoBInstallment($contract, 2, '2026-06-15', '1000.00');
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '1373.91',
+        'adelantar_cuotas',
+        Carbon::parse('2026-05-24'),
+        [],
+    );
+
+    $first->refresh();
+    $second = $contract->amortizationInstallments()->where('installment_number', 2)->first();
+
+    expect($result['amount_applied'])->toBe('1373.91')
+        ->and($result['installments'])->toHaveCount(2)
+        ->and($result['installments'][0]['installment_number'])->toBe(1)
+        ->and($result['installments'][1]['installment_number'])->toBe(2)
+        ->and($first->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $first->extra_payment)->toBe(0.0)
+        ->and($second)->not->toBeNull()
+        ->and($second->status)->toBe(AmortizationStatus::PARTIAL)
+        ->and($second->quota_debt)->toBe('626.09')
+        ->and((float) $second->extra_payment)->toBe(0.0);
+});
+
+it('Hueco B tarde: si la siguiente vence el mismo mes (corriente), el extra queda en esa corriente', function () {
+    $suffix = (string) random_int(100000, 999999);
+    $contract = huecoBContract($suffix);
+    $first = huecoBInstallment($contract, 1, '2026-05-10', '3000.00');
+    $second = huecoBInstallment($contract, 2, '2026-05-25', '2000.00');
+    huecoBInstallment($contract, 3, '2026-06-15', '1000.00');
+
+    $result = app(CascadeCollectionService::class)->process(
+        $contract->id,
+        '2500.00',
+        'abono_capital',
+        Carbon::parse('2026-05-20'),
+        [],
+    );
+
+    $first->refresh();
+    $second->refresh();
+    $third = $contract->amortizationInstallments()->where('installment_number', 3)->first();
+
+    expect($result['amount_applied'])->toBe('2500.00')
+        ->and($result['installments'])->toHaveCount(2)
+        ->and($first->status)->toBe(AmortizationStatus::PAID)
+        ->and((float) $first->extra_payment)->toBe(0.0)
+        ->and($second->status)->toBe(AmortizationStatus::PAID)
+        ->and($second->extra_payment)->toBe('500.00')
+        ->and($third)->not->toBeNull()
+        ->and($third->status)->toBe(AmortizationStatus::PENDING)
+        ->and($third->quota_debt)->toBe('1000.00');
+});

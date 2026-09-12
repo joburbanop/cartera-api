@@ -14,6 +14,7 @@ use App\Services\Financial\Transaction\InstallmentPaymentAllocator;
 use App\Services\Residual\ResidualBalanceService;
 use App\Support\ContractCollectionGuard;
 use App\Support\ContractFinancialLock;
+use App\Support\DueDateRules;
 use App\Support\ReceiptNumber;
 use App\Support\SafeUploadedFileName;
 use Carbon\Carbon;
@@ -197,6 +198,33 @@ class CascadeCollectionService
                     $processedAmount,
                 );
                 $availableAmount = '0.00';
+            }
+
+            // Ventana mora→siguiente al día: #N ya venció, #N+1 todavía no.
+            // #N no entra como corriente del mes, así que no hay
+            // absorbSurplusViaHandle arriba. El sobrante es extra de esa #N,
+            // no se adelanta a firstNonOverduePending (#N+1).
+            if (
+                $this->sticksSurplusOnCurrent($normalizedPaymentOption)
+                && ! $hasExplicitSelection
+                && bccomp($availableAmount, '0.00', 2) > 0
+            ) {
+                $lastCovered = $this->lastProcessedInstallment($contract, $processedIds);
+                if (
+                    $lastCovered
+                    && $this->nextPendingIsNotOverdue($contract, $lastCovered, $effectiveTransactionDate)
+                ) {
+                    $this->absorbSurplusViaHandle(
+                        $contract,
+                        $lastCovered,
+                        $availableAmount,
+                        (string) $normalizedPaymentOption,
+                        $effectiveTransactionDate,
+                        $appliedInstallments,
+                        $processedAmount,
+                    );
+                    $availableAmount = '0.00';
+                }
             }
 
             if (
@@ -468,6 +496,45 @@ class CascadeCollectionService
         }
 
         return $last;
+    }
+
+    private function lastProcessedInstallment(Contract $contract, array $processedIds): ?AmortizationInstallment
+    {
+        if ($processedIds === []) {
+            return null;
+        }
+
+        $lastId = (int) $processedIds[array_key_last($processedIds)];
+
+        return $contract->amortizationInstallments()->where('id', $lastId)->first();
+    }
+
+    /**
+     * True si existe una # posterior pendiente y aún no vence a $asOf.
+     * Sin siguiente (plan ya cubierto) no ancla: sigue el rechazo de
+     * obligación cumplida cuando el extra no cabe.
+     */
+    private function nextPendingIsNotOverdue(
+        Contract $contract,
+        AmortizationInstallment $lastCovered,
+        Carbon $asOf,
+    ): bool {
+        $next = $contract->amortizationInstallments()
+            ->where('installment_number', '>', (int) $lastCovered->installment_number)
+            ->where('status', '!=', AmortizationStatus::PAID->value)
+            ->where(function ($query) {
+                $query->where('quota_debt', '>', 0)
+                    ->orWhere('remaining_balance', '>', 0);
+            })
+            ->orderBy('due_date', 'asc')
+            ->orderBy('installment_number', 'asc')
+            ->first();
+
+        if (! $next) {
+            return false;
+        }
+
+        return ! DueDateRules::isOverdue($next->due_date, $asOf);
     }
 
     /**
