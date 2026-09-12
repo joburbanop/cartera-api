@@ -309,7 +309,8 @@ it('un cobro nuevo menor a dos cuotas vencidas deja sources en ambas y el extra 
         ->and($sources1[0]['came_from'])->toBe([])
         ->and($sources2[0]['also_applied_to'])->toBe([])
         ->and($sources2[0]['came_from'][0]['installment_number'])->toBe(1)
-        ->and($sources2[0]['came_from'][0]['amount'])->toBe('500.00');
+        ->and($sources2[0]['came_from'][0]['amount'])->toBe('500.00')
+        ->and(collect($sources2[0]['route'])->pluck('installment_number')->all())->toBe([1, 2]);
 });
 
 it('un cobro que parte en una cuota posterior deja came_from en la que recibió el sobrante', function () {

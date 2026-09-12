@@ -82,6 +82,7 @@ class AllocationSourcePresenter
                     'came_from' => $isOrigin
                         ? []
                         : $this->cameFromOrigin($tx, $allocation),
+                    'route' => $this->receiptRoute($tx),
                 ];
             })
             ->filter()
@@ -115,6 +116,7 @@ class AllocationSourcePresenter
                     'came_from' => $isOrigin
                         ? []
                         : $this->cameFromPromiseOrigin($tx, $allocation),
+                    'route' => $this->promiseRoute($tx),
                 ];
             })
             ->filter()
@@ -177,6 +179,39 @@ class AllocationSourcePresenter
             'installment_number' => $installmentNumber,
             'amount' => $amount,
         ];
+    }
+
+    /**
+     * Recorrido completo del recibo, en el orden en que se imputó.
+     * No cambia montos: solo sirve para leer la trazabilidad.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function receiptRoute(Transaction $tx): array
+    {
+        return $tx->allocations
+            ->sortBy('id')
+            ->values()
+            ->map(fn (TransactionAllocation $allocation) => $this->allocationPeer(
+                $allocation,
+                $this->money((string) $allocation->amount),
+            ))
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function promiseRoute(Transaction $tx): array
+    {
+        return $tx->promiseAllocations
+            ->sortBy('id')
+            ->values()
+            ->map(fn (PaymentPromiseAllocation $allocation) => $this->promisePeer(
+                $allocation,
+                $this->money((string) $allocation->amount),
+            ))
+            ->all();
     }
 
     /**
